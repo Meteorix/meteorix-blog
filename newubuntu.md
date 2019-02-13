@@ -28,8 +28,7 @@ git config --global --edit  # 设置name和email
 
 如果替换默认shell失败，先设置密码再替换
 ```shell
-passwd
-...
+passwd  # 设置密码
 chsh zsh
 ```
 
