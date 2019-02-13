@@ -3,10 +3,11 @@
 
 ### apt
 
-1. apt源替换
-    *   源列表：http://wiki.ubuntu.org.cn/
-    *   清华源：https://mirror.tuna.tsinghua.edu.cn/help/ubuntu/
-2. 安装zsh/vim/git
+替换apt源
+*   源列表：http://wiki.ubuntu.org.cn/
+*   清华源：https://mirror.tuna.tsinghua.edu.cn/help/ubuntu/
+
+安装``zsh/vim/git``
 
 ```shell
 sudo apt-get update
@@ -17,6 +18,7 @@ sudo apt-get install zsh vim git
 
 ```
 git config --global core.editor "vim"
+git config --global --edit  # 设置name和email
 ```
 
 
@@ -24,14 +26,14 @@ git config --global core.editor "vim"
 
 配置**oh-my-zsh** https://github.com/robbyrussell/oh-my-zsh
 
-如果替换默认sh，先设置密码再替换
+如果替换默认shell失败，先设置密码再替换
 ```shell
 passwd
 ...
 chsh zsh
 ```
 
-解决zsh 有残留的问题，在 ``~/.vimrc`` 添加
+解决zsh 有残留的问题，在 ``~/.zshrc`` 添加
 
 ```
 export LANG=en_US.UTF-8
