@@ -43,6 +43,11 @@ export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 ```
 
+解决tabname闪烁的问题，在``~/.zshrc``disable掉autotitle
+```
+DISABLE_AUTO_TITLE="true"
+```
+
 > 参考：https://github.com/sindresorhus/pure/issues/300
 
 ### vimrc
