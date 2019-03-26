@@ -1,5 +1,12 @@
 # meteorix-blog
 
+
+* [Python设计模式](https://github.com/Meteorix/python-design-patterns)
+* [Python源码学习笔记](https://github.com/Meteorix/pysourcenote)
+  - [PyObject对象系统](https://github.com/Meteorix/pysourcenote/blob/master/object.md)
+  - [GC垃圾回收机制](https://github.com/Meteorix/pysourcenote/blob/master/gc.md)
+  - [最小实现minipython](https://github.com/Meteorix/pysourcenote/blob/master/minipython.md)
+  - [Python虚拟机](https://github.com/Meteorix/pysourcenote/blob/master/vm.md)
 *	[新Ubuntu环境搭建](./newubuntu.md)
 *	[vs2017混合调试py/c++](./vsdebugpycpp.md)
 *	[gdb调试cpython](./gdbpython.md)
