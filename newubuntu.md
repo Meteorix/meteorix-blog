@@ -48,6 +48,10 @@ export LC_ALL=en_US.UTF-8
 ### vimrc
 
 配置**vimrc** https://github.com/amix/vimrc
+```shell
+git clone --depth=1 https://github.com/amix/vimrc.git ~/.vim_runtime
+sh ~/.vim_runtime/install_basic_vimrc.sh
+```
 
 还要在``~/.vimrc``加上
 ```
