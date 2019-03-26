@@ -26,6 +26,10 @@ git config --global --edit  # 设置name和email
 
 配置**oh-my-zsh** https://github.com/robbyrussell/oh-my-zsh
 
+```shell
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/robbyrussell/oh-my-zsh/master/tools/install.sh)"
+```
+
 如果替换默认shell失败，先设置密码再替换
 ```shell
 passwd  # 设置密码
