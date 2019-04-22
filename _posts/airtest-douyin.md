@@ -3,7 +3,7 @@ title: Airtest刷刷抖音
 
 date: 2019-2-5 22:41:32
 
-tags: Python
+tags: [Python,Airtest]
 
 ---
 
