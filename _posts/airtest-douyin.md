@@ -24,6 +24,7 @@ tags: [Python,Airtest]
 *   [夜神模拟器](https://www.yeshen.com/)（可用安卓机代替）
 *   [AirtestIDE](http://airtest.netease.com/)
 
+<!--more-->
 
 夜神模拟器装上抖音，用起来跟手机上一样舒服。看了下模拟器占内存200m和CPU 12%左右，还不错。夜神自带了一个多开器，后面分布式刷抖音再玩玩
 

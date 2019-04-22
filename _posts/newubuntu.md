@@ -29,6 +29,8 @@ git config --global core.editor "vim"
 git config --global --edit  # 设置name和email
 ```
 
+<!--more-->
+
 
 ### zsh
 

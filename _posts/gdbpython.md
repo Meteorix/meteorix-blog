@@ -27,6 +27,9 @@ tags: Python
 sudo apt-get install gdb python-dbg
 ```
 
+<!--more-->
+
+
 ``python-dbg``包含symbol和py-bt
 
 会自动把libpython.py装到gdb的auto-load目录，并且保证后面的子目录跟python的目录地址一样
