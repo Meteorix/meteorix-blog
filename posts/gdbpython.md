@@ -11,7 +11,7 @@ gdb调试cpython
 
 在调试脚本卡死的时候特别有用，如下图
 
-![image](./gdbpython.img/bt.png)
+![image](/images/gdbpython/bt.png)
 
 ## 安装python-dbg
 
