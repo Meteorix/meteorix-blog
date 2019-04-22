@@ -71,6 +71,6 @@ vs Debug启动python项目真的超级慢（感觉是有bug），而且我们经
 
 Debug->Attach to Process
 
-![image.png](./vsdebugpycpp.img/5c3da1cb7f9d2a99198674256wRjQZ2J.png)
+![image.png](/images/vsdebugpycpp/5c3da1cb7f9d2a99198674256wRjQZ2J.png)
 
 连上之后所有功能一样使用
