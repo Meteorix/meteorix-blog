@@ -1,5 +1,13 @@
-gdb调试cpython
-==============
+---
+title: gdb调试cpython
+
+date: 2019-2-13 23:11:32
+
+tags: Python
+
+---
+
+# gdb调试cpython
 
 主要参考这篇文章：
 

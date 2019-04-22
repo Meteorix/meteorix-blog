@@ -1,5 +1,13 @@
-新ubuntu环境搭建
-===============
+---
+title: 新ubuntu环境搭建
+
+date: 2019-2-13 22:41:32
+
+tags: Python
+
+---
+
+# 新ubuntu环境搭建
 
 ### apt
 
