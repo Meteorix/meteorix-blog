@@ -7,6 +7,8 @@ tags: Python
 
 ---
 
+# Airtest刷刷抖音
+
 用[Airtest](https://github.com/AirtestProject/Airtest)做点有意思的事情，先来刷个抖音？
 
 [github仓库 airtest-douyin](https://github.com/Meteorix/airtest-douyin)
