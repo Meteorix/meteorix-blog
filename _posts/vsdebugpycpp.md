@@ -27,7 +27,7 @@ vs一直被称为宇宙最强IDE，貌似python支持是vs2017新加的功能。
 2. 导入Sunshine项目，会在主目录生成Sunshine.sln，以后都可以双击打开了
 
     ```New Project->Python->From Existing Python Code```
-    ![image.png](./vsdebugpycpp.img/5c3d9b205e60273aadf4650714DcRPJX.png)
+    ![image.png](/images/vsdebugpycpp/5c3d9b205e60273aadf4650714DcRPJX.png)
 3. 按照官网文档配置[Enable mixed-mode debugging in a Python project](https://docs.microsoft.com/en-us/visualstudio/python/debugging-mixed-mode-c-cpp-python-in-visual-studio?view=vs-2017#enable-mixed-mode-debugging-in-a-python-project)
 4. 安装python的`pdb`文件，3.6直接用python installer安装，参考[这里](https://docs.microsoft.com/en-us/visualstudio/python/debugging-symbols-for-mixed-mode-c-cpp-python?view=vs-2017#download-symbols)
 5. 配置`pdb`文件，主要是qt5的。qt5.9之后提供了pdb文件下载，[5.11.2的在这里](https://download.qt.io/archive/qt/5.11/5.11.2/)（PyQt最新版5.11.3，用的是Qt5.11.2，别问我为什么知道）
@@ -41,7 +41,7 @@ vs一直被称为宇宙最强IDE，貌似python支持是vs2017新加的功能。
 
 假设我们现在的Sunshine卡死了，这时候点击vs上的暂停按钮，就能立马停住。
 
-![image.png](./vsdebugpycpp.img/5c3d9dbcaa49f15c3726191dzKYsU5Qw.png)
+![image.png](/images/vsdebugpycpp/5c3d9dbcaa49f15c3726191dzKYsU5Qw.png)
 
 回想起Pycharm停不住的恐惧！毕竟vs是native的暂停，宇宙第一！
 
@@ -53,13 +53,13 @@ vs一直被称为宇宙最强IDE，貌似python支持是vs2017新加的功能。
 *   切换线程
 *   查看locals
 
-![image.png](./vsdebugpycpp.img/5c3d9e54a7f2529830bb770bjqP16HQy.png)
+![image.png](/images/vsdebugpycpp/5c3d9e54a7f2529830bb770bjqP16HQy.png)
 
 ### 混合的单步调试
 
 以前python调到Qt里面去之后，就不知道发生了什么，现在可以从python step到c++中。
 
-![image.png](./vsdebugpycpp.img/5c3da03a96dee435e6604c4aVmHaq5uC.png)
+![image.png](/images/vsdebugpycpp/5c3da03a96dee435e6604c4aVmHaq5uC.png)
 
 双击callstack中的c++ frame，vs会提示你打开。当然，这需要你本地下载了qt的c++代码。
 
