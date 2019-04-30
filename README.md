@@ -1,6 +1,7 @@
 # meteorix-blog
 
 
+* [记一次pytorch的coredump调试](./_posts/pytorch-coredump.md)
 * [Python设计模式](https://github.com/Meteorix/python-design-patterns)
 * [Python源码学习笔记](https://github.com/Meteorix/pysourcenote)
   - [PyObject对象系统](https://github.com/Meteorix/pysourcenote/blob/master/object.md)
