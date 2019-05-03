@@ -8,8 +8,8 @@ tags: [Python,机器学习]
 ---
 
 
-1. 两个算法小哥写了个flask的web服务器，跑ocr的服务，单个请求是好的，多请求就崩了。
-log就显示```Segmentation fault (core dumped)```
+1. 两个算法小哥写了个flask的web服务器，跑ocr的服务。单个请求是好的，多请求就崩了, log就显示：
+    ``Segmentation fault (core dumped)``
 
     >   “wtf is core dump?”
 
@@ -36,6 +36,8 @@ log就显示```Segmentation fault (core dumped)```
     ```
 
 6. 等等，这里我们是python程序崩了，为什么没有traceback？因为在调用到pytorch的c++代码时，直接segmentfault，并没能等到python的退出机制打印出traceback，直接崩了。但是操作系统能产生coredump文件，这是我们的救命稻草。
+
+<!-- more -->
 
 7. 直接用gdb调试python的coredump文件
 
@@ -192,12 +194,12 @@ log就显示```Segmentation fault (core dumped)```
     Segmentation fault (core dumped)
     ```
 
-13. 查了下``pytorch thread safety``，很多答案说默认是线程安全的。于是我提了个issue给他们 https://github.com/pytorch/pytorch/issues/19913  静待回复
+13. 查了下``pytorch thread safety``，很多答案说默认是线程安全的。于是我提了个issue给官方 https://github.com/pytorch/pytorch/issues/19913 静待回复
 
-14. 虽然最终只是两行代码临时解决，通过这次调试经历，需要涨的知识点：core dump/gdb/symbol/thread-safety，以及python调试的终极核武器：https://github.com/Meteorix/meteorix-blog/blob/master/_posts/gdbpython.md
+14. 虽然最终只是两行代码临时解决，通过这次调试经历，需要涨的知识点：core dump/gdb/debug symbol/thread-safety，以及python调试的终极核武器：https://github.com/Meteorix/meteorix-blog/blob/master/_posts/gdbpython.md
 
     > 在windows上我们更有宇宙最强的visual studio，提供了等价的python/c混合调试
 
-15. 关于这个问题，还有很多未解之谜 to be continued...
+15. 没过两天，官方回复了issue：pytorch新版本修复了很多线程安全问题。于是我升级pytorch 1.1，用上面的代码验证，果然没问题了。为了提升web服务器的性能，后面我们升级pytorch版本，就可以去掉那个令人不爽的锁了。
 
-
+16. 关于这个问题，还有很多未解之谜 to be continued...
