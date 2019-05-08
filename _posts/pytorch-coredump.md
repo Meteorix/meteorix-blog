@@ -124,8 +124,8 @@ tags: [Python,机器学习]
         ocr_pred, matrix = recognizer.recognize(img)
     ...
     ```
-    果然加了锁就再也没有诡异的coredump了，这个故事告诉我们：
-    > gpu代码调用多半不是thread-safe的，加个线程锁比较安全。
+    果然加了锁就再也没有诡异的coredump了，于是我们猜想：
+    > gpu代码调用可能不是thread-safe的，加个线程锁比较安全。
     
 12. 到底pytorch的函数是不是线程安全的呢？我们的算法小哥哥构造了一段代码验证:
     ```
@@ -196,10 +196,10 @@ tags: [Python,机器学习]
 
 13. 查了下``pytorch thread safety``，很多答案说默认是线程安全的。于是我提了个issue给官方 https://github.com/pytorch/pytorch/issues/19913 静待回复
 
-14. 虽然最终只是两行代码临时解决，通过这次调试经历，需要涨的知识点：core dump/gdb/debug symbol/thread-safety，以及python调试的终极核武器：https://github.com/Meteorix/meteorix-blog/blob/master/_posts/gdbpython.md
+14. 虽然只用两行代码就临时解决了问题，通过这次调试经历，我们可以获得知识点：core dump/gdb/debug symbol/thread-safety，以及python调试的终极武器：[gdb-python](https://github.com/Meteorix/meteorix-blog/blob/master/_posts/gdbpython.md)
 
-    > 在windows上我们更有宇宙最强的visual studio，提供了等价的python/c混合调试
+    > 在windows上我们更有宇宙最强的visual studio，提供了等价的[python/c混合调试](https://github.com/Meteorix/meteorix-blog/blob/master/_posts/vsdebugpycpp.md)
 
-15. 没过两天，官方回复了issue：pytorch新版本修复了很多线程安全问题。于是我升级pytorch 1.1，用上面的代码验证，果然没问题了。为了提升web服务器的性能，后面我们升级pytorch版本，就可以去掉那个令人不爽的锁了。
+15. 两天后，官方回复issue：pytorch新版本修复了很多线程安全问题。于是我升级pytorch 1.1，用上面的代码验证，果然没问题。为了提升web服务器的性能，我们准备升级pytorch版本，就可以去掉那个令人不爽的锁。
 
 16. 关于这个问题，还有很多未解之谜 to be continued...
