@@ -23,16 +23,16 @@ profile工具基本分成两种思路：
 
 2. 采样
 
-    采样是高频地去探测正在运行的函数调用栈，然后根据大数定理，探测到次数越多的函数运行时间越长。pyflame正是基于采样的原理，统计结果用火焰图[flamegraph](http://www.brendangregg.com/flamegraphs.html)展示，可以让我们完整了解cpu运行状态。
+    采样是注入正在运行的进程，高频地去探测函数调用栈。根据大数定理，探测到次数越多的函数运行时间越长。pyflame正是基于采样的原理。统计结果用另一个神器——火焰图[flamegraph](http://www.brendangregg.com/flamegraphs.html)展示，我们就可以完整地了解cpu运行状态。
 
 
 # 使用pyflame和火焰图
 
 ## flame-server
 
-# pyflame原理解析
+# How magic happens
 
-Uber官方博客给了一篇[由浅入深的讲解](https://eng.uber.com/pyflame/)，这里简单提几个关键点，how magic happens。
+Uber官方博客给了一篇[由浅入深的讲解](https://eng.uber.com/pyflame/)，这里简单提几个关键点。
 
 ## ptrace
 
