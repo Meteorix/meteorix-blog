@@ -1,5 +1,5 @@
 ---
-title: pyflame原理解析
+title: Pyflame原理解析
 
 date: 2019-5-24 20:12:22
 
@@ -7,20 +7,22 @@ tags: [Python,C++]
 
 ---
 
-[pyflame](https://github.com/uber/pyflame)是uber开源的一个python性能profile工具。
+[Pyflame](https://github.com/uber/pyflame)是uber开源的一个python性能profiler。
 
 > 没有profile的优化就是耍流氓
 
-说起python，被吐槽最多的就是慢。根据上面的名言，第一步我们需要一个性能profile工具。
+说起python，被吐槽最多的就是慢。根据上面的名言，首先我们需要一个性能profiler。
 
 # profiler的两种原理
 
 profile工具基本分成两种思路：
 
 1. 插桩
+
     这个理解起来非常直白，在每个函数的开始和结束时计时，然后统计每个函数的执行时间。python自带的`Profile`和`cProfile`就是这个原理。但是插桩会有两个问题，一是插桩计时本身带来的性能消耗`overhead`极大，二是对一个正在运行的程序没法插桩。
 
 2. 采样
+
     采样是高频地去探测正在运行的函数调用栈，然后根据大数定理，探测到次数越多的函数运行时间越长。pyflame正是基于采样的原理，统计结果用火焰图[flamegraph](http://www.brendangregg.com/flamegraphs.html)展示，可以让我们完整了解cpu运行状态。
 
 
@@ -30,10 +32,20 @@ profile工具基本分成两种思路：
 
 # pyflame原理解析
 
-ptrace
+Uber官方博客给了一篇[由浅入深的讲解](https://eng.uber.com/pyflame/)，这里简单提几个关键点，how magic happens。
 
-tstate
+## ptrace
 
-# 如果我们想看c/c++函数呢
+linux操作系统提供了一个强大的函数`ptrace`，让你可以注入任意进程(有sudo权限就是可以为所欲为)查看当前的寄存器、运行栈和内存，甚至可以任意修改别人的进程。
+
+著名的`gdb`也是利用ptrace实现。比如打断点，其实就是保存了当前的运行状态，修改寄存器执行断点调试函数，之后恢复保存的运行状态继续运行。
+
+## tstate
+
+有了ptrace之后，我们可以通过python的符号找到`tstate`，也就是python虚拟机保存线程调用栈的地方。然后通过`tstate`，拿到虚拟机中的py调用栈，反解出python的函数名、所在文件行号等信息。后面就是高频采样和输出统计结果了。
+
+这部分如果想深入了解，可以看[python虚拟机](https://github.com/Meteorix/pysourcenote/blob/master/vm.md)这篇介绍。
+
+# 如果我们想profile c/c++呢
 
 libunwind
