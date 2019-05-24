@@ -30,6 +30,15 @@ profile工具基本分成两种思路：
 
 ## flame-server
 
+## 即时维护的分支
+
+Uber写pyflame的哥们离职了，还没人接手这个项目。于是我自己维护了一个分支，做了几点微小的工作：
+1. 修复py2.7编译脚本
+1. 修复py3.7兼容性问题，感谢pr
+1. 修复anaconda的兼容性问题，感谢另一个pr
+1. 增加dockerfile，enable所有abi，目前同时支持py2.6/2.7/3.4-3.7
+1. 试图增加c/c++ profile
+
 # How magic happens
 
 Uber官方博客给了一篇[由浅入深的讲解](https://eng.uber.com/pyflame/)，这里简单提几个关键点。
