@@ -19,7 +19,7 @@ profile工具基本分成两种思路：
 
 1. 插桩
 
-    这个理解起来非常直白，在每个函数的开始和结束时计时，然后统计每个函数的执行时间。python自带的`Profile`和`cProfile`就是这个原理。但是插桩会有两个问题，一是插桩计时本身带来的性能消耗`overhead`极大，二是对一个正在运行的程序没法插桩。
+    这个理解起来非常直白，在每个函数的开始和结束时计时，然后统计每个函数的执行时间。python自带的`Profile`和`cProfile`模块就是这个原理。但是插桩会有两个问题，一是插桩计时本身带来的性能消耗`overhead`极大，二是对一个正在运行的程序没法插桩。
 
 2. 采样
 
@@ -28,7 +28,18 @@ profile工具基本分成两种思路：
 
 # 使用pyflame和火焰图
 
-## flame-server
+官方提供了pyflame源码，需要自己编译对应python版本，然后调用flamegraph生成火焰图svg。具体可以看[官方文档](https://pyflame.readthedocs.io/en/latest/)。为了方便自己人使用，我写了个pyflame-server。
+
+## pyflame-server
+
+[https://github.com/Meteorix/pyflame-server](https://github.com/Meteorix/pyflame-server)
+
+pyflame-server使用步骤很简单：
+1. 下载编译好的pyflame二进制文件，支持py2.6/2.7/3.4/3.5/3.6/3.7
+2. pyflame启动python进程，或者attach到正在运行的进程，得到profile.txt
+3. 上传profile.txt，查看火焰图页面
+
+pyflame-server是基于flask简单的web项目，欢迎参与开发。
 
 ## 即时维护的分支
 
