@@ -84,7 +84,7 @@ linux操作系统提供了一个强大的系统调用`ptrace`，让你可以注�
 
 `libunwind`是另一个开源的c++库，同样利用`ptrace`实现了远程注入和解c栈的接口。于是我们可以在一次ptrace断点时，同时解出c栈和py栈，然后用一个巧妙的办法将两个栈merge到一起。再修改一下`flamegraph`的配色，可以得到c/c++栈和py栈混合profile的效果。
 
-![c/py混合profile](profile_c.svg)
+![c/py混合profile](/images/pyflame/profile_c.svg)
 
 通过上面的火焰图，我们能清楚的看到每个python调用，实际上调用的底层c++函数。
 
