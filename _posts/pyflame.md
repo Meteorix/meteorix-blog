@@ -39,7 +39,7 @@ pyflame-server使用步骤很简单：
 2. pyflame启动python进程，或者attach到正在运行的进程，得到profile.txt
 3. 上传profile.txt，查看火焰图页面
 
-内部地址[http://172.22.22.230:5000/]](http://172.22.22.230:5000/)
+内部地址[http://172.22.22.230:5000/](http://172.22.22.230:5000/)
 
 pyflame-server是基于flask简单的web项目，欢迎参与开发。
 
