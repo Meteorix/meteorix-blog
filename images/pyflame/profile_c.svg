@@ -1,0 +1,3113 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="2678" onload="init(evt)" viewBox="0 0 1200 2678" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<!-- NOTES:  -->
+<defs>
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eeeeee" offset="5%" />
+		<stop stop-color="#eeeeb0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	text { font-family:Verdana; font-size:12px; fill:rgb(0,0,0); }
+	#search { opacity:0.1; cursor:pointer; }
+	#search:hover, #search.show { opacity:1; }
+	#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+	#title { text-anchor:middle; font-size:17px}
+	#unzoom { cursor:pointer; }
+	#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+	.hide { display:none; }
+	.parent { opacity:0.5; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	"use strict";
+	var details, searchbtn, unzoombtn, matchedtxt, svg, searching;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		unzoombtn = document.getElementById("unzoom");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+	}
+
+	window.addEventListener("click", function(e) {
+		var target = find_group(e.target);
+		if (target) {
+			if (target.nodeName == "a") {
+				if (e.ctrlKey === false) return;
+				e.preventDefault();
+			}
+			if (target.classList.contains("parent")) unzoom();
+			zoom(target);
+		}
+		else if (e.target.id == "unzoom") unzoom();
+		else if (e.target.id == "search") search_prompt();
+	}, false)
+
+	// mouse-over for info
+	// show
+	window.addEventListener("mouseover", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = "Function: " + g_to_text(target);
+	}, false)
+
+	// clear
+	window.addEventListener("mouseout", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = ' ';
+	}, false)
+
+	// ctrl-F for search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+	}, false)
+
+	// functions
+	function find_child(node, selector) {
+		var children = node.querySelectorAll(selector);
+		if (children.length) return children[0];
+		return;
+	}
+	function find_group(node) {
+		var parent = node.parentElement;
+		if (!parent) return;
+		if (parent.id == "frames") return node;
+		return find_group(parent);
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_" + attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_" + attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_" + attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes.width.value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes.x.value = parseFloat(r.attributes.x.value) + 3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2 * 12 * 0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		// Fit in full text width
+		if (/^ *$/.test(txt) || t.getSubStringLength(0, txt.length) < w)
+			return;
+
+		for (var x = txt.length - 2; x > 0; x--) {
+			if (t.getSubStringLength(0, x + 2) <= w) {
+				t.textContent = txt.substring(0, x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = (parseFloat(e.attributes.x.value) - x - 10) * ratio + 10;
+				if (e.tagName == "text")
+					e.attributes.x.value = find_child(e.parentNode, "rect[x]").attributes.x.value + 3;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseFloat(e.attributes.width.value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_child(c[i], x - 10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = 10;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseInt(svg.width.baseVal.value) - (10 * 2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr.width.value);
+		var xmin = parseFloat(attr.x.value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr.y.value);
+		var ratio = (svg.width.baseVal.value - 2 * 10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		unzoombtn.classList.remove("hide");
+
+		var el = document.getElementById("frames").children;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a.x.value);
+			var ew = parseFloat(a.width.value);
+			var upstack;
+			// Is it an ancestor
+			if (0 == 0) {
+				upstack = parseFloat(a.y.value) > ymin;
+			} else {
+				upstack = parseFloat(a.y.value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.classList.add("parent");
+					zoom_parent(e);
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.classList.add("hide");
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.classList.add("hide");
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					update_text(e);
+				}
+			}
+		}
+	}
+	function unzoom() {
+		unzoombtn.classList.add("hide");
+		var el = document.getElementById("frames").children;
+		for(var i = 0; i < el.length; i++) {
+			el[i].classList.remove("parent");
+			el[i].classList.remove("hide");
+			zoom_reset(el[i]);
+			update_text(el[i]);
+		}
+	}
+
+	// search
+	function reset_search() {
+		var el = document.querySelectorAll("#frames rect");
+		for (var i = 0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)", "");
+			if (term != null) {
+				search(term)
+			}
+		} else {
+			reset_search();
+			searching = 0;
+			searchbtn.classList.remove("show");
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.classList.add("hide");
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		var re = new RegExp(term);
+		var el = document.getElementById("frames").children;
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes.width.value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes.x.value);
+				orig_save(rect, "fill");
+				rect.attributes.fill.value = "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+
+		searchbtn.classList.add("show");
+		searchbtn.firstChild.nodeValue = "Reset Search";
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.classList.remove("hide");
+		var pct = 100 * count / maxwidth;
+		if (pct != 100) pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="1200.0" height="2678.0" fill="url(#background)"  />
+<text id="title" x="600.00" y="24" >Flame Graph</text>
+<text id="details" x="10.00" y="2661" > </text>
+<text id="unzoom" x="10.00" y="24" class="hide">Reset Zoom</text>
+<text id="search" x="1090.00" y="24" >Search</text>
+<text id="matched" x="1090.00" y="2661" > </text>
+<g id="frames">
+<g >
+<title>0xc:_ZNK2at11TypeDefault12index_selectERKNS_6TensorElS3_:0 (1 samples, 1.39%)</title><rect x="255.8" y="1845" width="16.4" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="258.83" y="1855.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="911.4" y="1637" width="16.4" height="15.0" fill="rgb(223,123,0)" rx="2" ry="2" />
+<text  x="914.39" y="1647.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="960.6" y="789" width="16.3" height="15.0" fill="rgb(254,154,0)" rx="2" ry="2" />
+<text  x="963.56" y="799.5" ></text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/nn/modules/module.py:_named_members:784 (1 samples, 1.39%)</title><rect x="976.9" y="2245" width="16.4" height="15.0" fill="rgb(84,231,84)" rx="2" ry="2" />
+<text  x="979.94" y="2255.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load_unlocked:955 (1 samples, 1.39%)</title><rect x="960.6" y="1765" width="16.3" height="15.0" fill="rgb(189,189,55)" rx="2" ry="2" />
+<text  x="963.56" y="1775.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (2 samples, 2.78%)</title><rect x="1108.1" y="2405" width="32.7" height="15.0" fill="rgb(230,130,0)" rx="2" ry="2" />
+<text  x="1111.06" y="2415.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="944.2" y="1573" width="16.4" height="15.0" fill="rgb(222,122,0)" rx="2" ry="2" />
+<text  x="947.17" y="1583.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="895.0" y="1077" width="16.4" height="15.0" fill="rgb(197,97,0)" rx="2" ry="2" />
+<text  x="898.00" y="1087.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1685" width="16.4" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="898.00" y="1695.5" ></text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="960.6" y="1925" width="16.3" height="15.0" fill="rgb(236,136,0)" rx="2" ry="2" />
+<text  x="963.56" y="1935.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN3c1010RegistererISsSt10unique_ptrIN6caffe212OperatorBaseESt14default_deleteIS3_EEIRKNS2_11OperatorDefEPNS2_9WorkspaceEEEC2ERKSsPNS_8RegistryISsS6_IS9_SB_EEESt8functionIFS6_S9_SB_EESE_:0 (1 samples, 1.39%)</title><rect x="944.2" y="1317" width="16.4" height="15.0" fill="rgb(246,146,0)" rx="2" ry="2" />
+<text  x="947.17" y="1327.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="1157" width="16.3" height="15.0" fill="rgb(212,112,0)" rx="2" ry="2" />
+<text  x="963.56" y="1167.5" ></text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2229" width="16.4" height="15.0" fill="rgb(216,116,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2239.5" ></text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="960.6" y="549" width="16.3" height="15.0" fill="rgb(241,141,0)" rx="2" ry="2" />
+<text  x="963.56" y="559.5" ></text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="960.6" y="773" width="16.3" height="15.0" fill="rgb(248,148,0)" rx="2" ry="2" />
+<text  x="963.56" y="783.5" ></text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2085" width="16.4" height="15.0" fill="rgb(233,133,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2095.5" ></text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (17 samples, 23.61%)</title><rect x="10.0" y="2261" width="278.6" height="15.0" fill="rgb(193,93,0)" rx="2" ry="2" />
+<text  x="13.00" y="2271.5" >0xc:_PyFunction_FastCallDict:0</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="1009.7" y="2405" width="16.4" height="15.0" fill="rgb(212,112,0)" rx="2" ry="2" />
+<text  x="1012.72" y="2415.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="469" width="16.3" height="15.0" fill="rgb(214,114,0)" rx="2" ry="2" />
+<text  x="963.56" y="479.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="357" width="16.3" height="15.0" fill="rgb(249,149,0)" rx="2" ry="2" />
+<text  x="963.56" y="367.5" ></text>
+</g>
+<g >
+<title>0xc:PyObject_Call:0 (17 samples, 23.61%)</title><rect x="10.0" y="2405" width="278.6" height="15.0" fill="rgb(219,119,0)" rx="2" ry="2" />
+<text  x="13.00" y="2415.5" >0xc:PyObject_Call:0</text>
+</g>
+<g >
+<title>0xc:PyImport_ImportModuleLevelObject:0 (1 samples, 1.39%)</title><rect x="960.6" y="597" width="16.3" height="15.0" fill="rgb(246,146,0)" rx="2" ry="2" />
+<text  x="963.56" y="607.5" ></text>
+</g>
+<g >
+<title>0xc:__libc_malloc:0 (2 samples, 2.78%)</title><rect x="124.7" y="1637" width="32.8" height="15.0" fill="rgb(199,99,0)" rx="2" ry="2" />
+<text  x="127.72" y="1647.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="895.0" y="1381" width="16.4" height="15.0" fill="rgb(248,148,0)" rx="2" ry="2" />
+<text  x="898.00" y="1391.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1733" width="16.4" height="15.0" fill="rgb(192,92,0)" rx="2" ry="2" />
+<text  x="898.00" y="1743.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2213" width="16.4" height="15.0" fill="rgb(222,122,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2223.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (2 samples, 2.78%)</title><rect x="976.9" y="2405" width="32.8" height="15.0" fill="rgb(202,102,0)" rx="2" ry="2" />
+<text  x="979.94" y="2415.5" >0x..</text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/tensor.py:backward:107 (2 samples, 2.78%)</title><rect x="1108.1" y="2373" width="32.7" height="15.0" fill="rgb(50,200,50)" rx="2" ry="2" />
+<text  x="1111.06" y="2383.5" >/h..</text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_handle_fromlist:1023 (1 samples, 1.39%)</title><rect x="960.6" y="1333" width="16.3" height="15.0" fill="rgb(221,221,67)" rx="2" ry="2" />
+<text  x="963.56" y="1343.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="255.8" y="2005" width="16.4" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="258.83" y="2015.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="965" width="16.4" height="15.0" fill="rgb(248,148,0)" rx="2" ry="2" />
+<text  x="898.00" y="975.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="133" width="16.3" height="15.0" fill="rgb(225,125,0)" rx="2" ry="2" />
+<text  x="963.56" y="143.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autograd11as_variableEN2at6TensorE:0 (2 samples, 2.78%)</title><rect x="26.4" y="1749" width="32.8" height="15.0" fill="rgb(230,130,0)" rx="2" ry="2" />
+<text  x="29.39" y="1759.5" >0x..</text>
+</g>
+<g >
+<title>0xc:run_mod:0 (71 samples, 98.61%)</title><rect x="10.0" y="2517" width="1163.6" height="15.0" fill="rgb(207,107,0)" rx="2" ry="2" />
+<text  x="13.00" y="2527.5" >0xc:run_mod:0</text>
+</g>
+<g >
+<title>0xc:call_function:0 (17 samples, 23.61%)</title><rect x="10.0" y="2229" width="278.6" height="15.0" fill="rgb(222,122,0)" rx="2" ry="2" />
+<text  x="13.00" y="2239.5" >0xc:call_function:0</text>
+</g>
+<g >
+<title>0xc:slot_tp_getattr_hook:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2037" width="16.4" height="15.0" fill="rgb(202,102,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2047.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="501" width="16.3" height="15.0" fill="rgb(204,104,0)" rx="2" ry="2" />
+<text  x="963.56" y="511.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="911.4" y="1445" width="16.4" height="15.0" fill="rgb(211,111,0)" rx="2" ry="2" />
+<text  x="914.39" y="1455.5" ></text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="944.2" y="1925" width="16.4" height="15.0" fill="rgb(237,137,0)" rx="2" ry="2" />
+<text  x="947.17" y="1935.5" ></text>
+</g>
+<g >
+<title>0xc:THTensor_resizeNd:0 (1 samples, 1.39%)</title><rect x="255.8" y="1781" width="16.4" height="15.0" fill="rgb(242,142,0)" rx="2" ry="2" />
+<text  x="258.83" y="1791.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="1093" width="16.3" height="15.0" fill="rgb(206,106,0)" rx="2" ry="2" />
+<text  x="963.56" y="1103.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load:971 (1 samples, 1.39%)</title><rect x="895.0" y="1429" width="16.4" height="15.0" fill="rgb(200,200,59)" rx="2" ry="2" />
+<text  x="898.00" y="1439.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load_unlocked:955 (4 samples, 5.56%)</title><rect x="895.0" y="2293" width="65.6" height="15.0" fill="rgb(220,220,66)" rx="2" ry="2" />
+<text  x="898.00" y="2303.5" >&lt;frozen..</text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCodeEx:0 (71 samples, 98.61%)</title><rect x="10.0" y="2485" width="1163.6" height="15.0" fill="rgb(210,110,0)" rx="2" ry="2" />
+<text  x="13.00" y="2495.5" >0xc:PyEval_EvalCodeEx:0</text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="1749" width="16.3" height="15.0" fill="rgb(220,120,0)" rx="2" ry="2" />
+<text  x="963.56" y="1759.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK5torch8autograd12VariableType3addERKN2at6TensorES5_N3c106ScalarE:0 (6 samples, 8.33%)</title><rect x="91.9" y="1733" width="98.4" height="15.0" fill="rgb(245,145,0)" rx="2" ry="2" />
+<text  x="94.94" y="1743.5" >0xc:_ZNK5to..</text>
+</g>
+<g >
+<title>0xc:_ZN3c1013intrusive_ptrINS_10TensorImplENS_19UndefinedTensorImplEE6reset_Ev:0 (2 samples, 2.78%)</title><rect x="91.9" y="1717" width="32.8" height="15.0" fill="rgb(254,154,0)" rx="2" ry="2" />
+<text  x="94.94" y="1727.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_ZN5torch5utils11tensor_ctorERKN2at4TypeEN3c1010ScalarTypeEP7_objectS8_:0 (1 samples, 1.39%)</title><rect x="1009.7" y="2293" width="16.4" height="15.0" fill="rgb(210,110,0)" rx="2" ry="2" />
+<text  x="1012.72" y="2303.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_Call_Prepend:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2261" width="16.4" height="15.0" fill="rgb(239,139,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2271.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN3c1012GetAllocatorERKNS_10DeviceTypeE:0 (1 samples, 1.39%)</title><rect x="239.4" y="1653" width="16.4" height="15.0" fill="rgb(223,123,0)" rx="2" ry="2" />
+<text  x="242.44" y="1663.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load_unlocked:955 (1 samples, 1.39%)</title><rect x="895.0" y="1365" width="16.4" height="15.0" fill="rgb(192,192,56)" rx="2" ry="2" />
+<text  x="898.00" y="1375.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="1381" width="16.3" height="15.0" fill="rgb(222,122,0)" rx="2" ry="2" />
+<text  x="963.56" y="1391.5" ></text>
+</g>
+<g >
+<title>test2.py:&lt;module&gt;:10 (5 samples, 6.94%)</title><rect x="895.0" y="2453" width="81.9" height="15.0" fill="rgb(101,247,101)" rx="2" ry="2" />
+<text  x="898.00" y="2463.5" >test2.py:..</text>
+</g>
+<g >
+<title>0xc:PyImport_ImportModuleLevelObject:0 (1 samples, 1.39%)</title><rect x="895.0" y="1973" width="16.4" height="15.0" fill="rgb(205,105,0)" rx="2" ry="2" />
+<text  x="898.00" y="1983.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load:971 (1 samples, 1.39%)</title><rect x="944.2" y="1893" width="16.4" height="15.0" fill="rgb(229,229,69)" rx="2" ry="2" />
+<text  x="947.17" y="1903.5" ></text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/nn/modules/module.py:__getattr__:526 (1 samples, 1.39%)</title><rect x="1091.7" y="2053" width="16.4" height="15.0" fill="rgb(94,240,94)" rx="2" ry="2" />
+<text  x="1094.67" y="2063.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_GenericGetAttrWithDict:0 (1 samples, 1.39%)</title><rect x="1157.2" y="2357" width="16.4" height="15.0" fill="rgb(250,150,0)" rx="2" ry="2" />
+<text  x="1160.22" y="2367.5" ></text>
+</g>
+<g >
+<title>0xc:main:0 (71 samples, 98.61%)</title><rect x="10.0" y="2581" width="1163.6" height="15.0" fill="rgb(220,120,0)" rx="2" ry="2" />
+<text  x="13.00" y="2591.5" >0xc:main:0</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="944.2" y="1909" width="16.4" height="15.0" fill="rgb(243,143,0)" rx="2" ry="2" />
+<text  x="947.17" y="1919.5" ></text>
+</g>
+<g >
+<title>0xc:slot_tp_hash:0 (1 samples, 1.39%)</title><rect x="993.3" y="2213" width="16.4" height="15.0" fill="rgb(233,133,0)" rx="2" ry="2" />
+<text  x="996.33" y="2223.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="911.4" y="1941" width="16.4" height="15.0" fill="rgb(241,141,0)" rx="2" ry="2" />
+<text  x="914.39" y="1951.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="944.2" y="1653" width="16.4" height="15.0" fill="rgb(249,149,0)" rx="2" ry="2" />
+<text  x="947.17" y="1663.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK2at7CPUType11s__th_addmmERKNS_6TensorES3_S3_N3c106ScalarES5_:0 (2 samples, 2.78%)</title><rect x="206.7" y="1637" width="32.7" height="15.0" fill="rgb(208,108,0)" rx="2" ry="2" />
+<text  x="209.67" y="1647.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_Z22THPEngine_run_backwardP9THPEngineP7_objectS2_:0 (2 samples, 2.78%)</title><rect x="1108.1" y="2229" width="32.7" height="15.0" fill="rgb(190,90,0)" rx="2" ry="2" />
+<text  x="1111.06" y="2239.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_ZN3c1010TensorImplC2EONS_7StorageENS_12TensorTypeIdE:0 (2 samples, 2.78%)</title><rect x="124.7" y="1685" width="32.8" height="15.0" fill="rgb(233,133,0)" rx="2" ry="2" />
+<text  x="127.72" y="1695.5" >0x..</text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCode:0 (1 samples, 1.39%)</title><rect x="960.6" y="1573" width="16.3" height="15.0" fill="rgb(238,138,0)" rx="2" ry="2" />
+<text  x="963.56" y="1583.5" ></text>
+</g>
+<g >
+<title>0xc:_PyCFunction_FastCallDict:0 (35 samples, 48.61%)</title><rect x="288.6" y="2293" width="573.6" height="15.0" fill="rgb(207,107,0)" rx="2" ry="2" />
+<text  x="291.61" y="2303.5" >0xc:_PyCFunction_FastCallDict:0</text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1749" width="16.4" height="15.0" fill="rgb(243,143,0)" rx="2" ry="2" />
+<text  x="898.00" y="1759.5" ></text>
+</g>
+<g >
+<title>0xc:PyUnicode_Join:0 (1 samples, 1.39%)</title><rect x="895.0" y="933" width="16.4" height="15.0" fill="rgb(247,147,0)" rx="2" ry="2" />
+<text  x="898.00" y="943.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN2at6native5stackEN3c108ArrayRefINS_6TensorEEEl:0 (2 samples, 2.78%)</title><rect x="59.2" y="1733" width="32.7" height="15.0" fill="rgb(229,129,0)" rx="2" ry="2" />
+<text  x="62.17" y="1743.5" >0x..</text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="981" width="16.3" height="15.0" fill="rgb(238,138,0)" rx="2" ry="2" />
+<text  x="963.56" y="991.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK2at11TypeDefault9_th_addmmERKNS_6TensorES3_S3_N3c106ScalarES5_:0 (2 samples, 2.78%)</title><rect x="206.7" y="1653" width="32.7" height="15.0" fill="rgb(232,132,0)" rx="2" ry="2" />
+<text  x="209.67" y="1663.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="661" width="16.3" height="15.0" fill="rgb(193,93,0)" rx="2" ry="2" />
+<text  x="963.56" y="671.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autograd14deleteFunctionEPNS0_8FunctionE:0 (2 samples, 2.78%)</title><rect x="1058.9" y="2293" width="32.8" height="15.0" fill="rgb(207,107,0)" rx="2" ry="2" />
+<text  x="1061.89" y="2303.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="911.4" y="1925" width="16.4" height="15.0" fill="rgb(239,139,0)" rx="2" ry="2" />
+<text  x="914.39" y="1935.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1797" width="16.4" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="898.00" y="1807.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap_external&gt;:exec_module:678 (1 samples, 1.39%)</title><rect x="960.6" y="2085" width="16.3" height="15.0" fill="rgb(204,204,60)" rx="2" ry="2" />
+<text  x="963.56" y="2095.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="255.8" y="1989" width="16.4" height="15.0" fill="rgb(207,107,0)" rx="2" ry="2" />
+<text  x="258.83" y="1999.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load_unlocked:955 (1 samples, 1.39%)</title><rect x="944.2" y="1829" width="16.4" height="15.0" fill="rgb(225,225,68)" rx="2" ry="2" />
+<text  x="947.17" y="1839.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="1029" width="16.3" height="15.0" fill="rgb(225,125,0)" rx="2" ry="2" />
+<text  x="963.56" y="1039.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK5torch8autograd12VariableType16nll_loss_forwardERKN2at6TensorES5_S5_ll:0 (1 samples, 1.39%)</title><rect x="272.2" y="2069" width="16.4" height="15.0" fill="rgb(192,92,0)" rx="2" ry="2" />
+<text  x="275.22" y="2079.5" ></text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/tensor.py:__hash__:439 (1 samples, 1.39%)</title><rect x="993.3" y="2117" width="16.4" height="15.0" fill="rgb(98,244,98)" rx="2" ry="2" />
+<text  x="996.33" y="2127.5" ></text>
+</g>
+<g >
+<title>0xc:_PyCFunction_FastCallKeywords:0 (2 samples, 2.78%)</title><rect x="1108.1" y="2261" width="32.7" height="15.0" fill="rgb(226,126,0)" rx="2" ry="2" />
+<text  x="1111.06" y="2271.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="255.8" y="1973" width="16.4" height="15.0" fill="rgb(228,128,0)" rx="2" ry="2" />
+<text  x="258.83" y="1983.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="895.0" y="1653" width="16.4" height="15.0" fill="rgb(210,110,0)" rx="2" ry="2" />
+<text  x="898.00" y="1663.5" ></text>
+</g>
+<g >
+<title>/opt/miniconda3/lib/python3.6/collections/__init__.py:namedtuple:423 (1 samples, 1.39%)</title><rect x="895.0" y="981" width="16.4" height="15.0" fill="rgb(60,209,60)" rx="2" ry="2" />
+<text  x="898.00" y="991.5" ></text>
+</g>
+<g >
+<title>0xc:PyCFunction_Call:0 (1 samples, 1.39%)</title><rect x="960.6" y="1605" width="16.3" height="15.0" fill="rgb(221,121,0)" rx="2" ry="2" />
+<text  x="963.56" y="1615.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (15 samples, 20.83%)</title><rect x="26.4" y="2101" width="245.8" height="15.0" fill="rgb(222,122,0)" rx="2" ry="2" />
+<text  x="29.39" y="2111.5" >0xc:_PyEval_EvalFrameDefault:0</text>
+</g>
+<g >
+<title>0xc:_dl_rtld_di_serinfo:0 (1 samples, 1.39%)</title><rect x="944.2" y="1349" width="16.4" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="947.17" y="1359.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load:971 (1 samples, 1.39%)</title><rect x="960.6" y="2293" width="16.3" height="15.0" fill="rgb(195,195,57)" rx="2" ry="2" />
+<text  x="963.56" y="2303.5" ></text>
+</g>
+<g >
+<title>0xc:PyObject_Call:0 (15 samples, 20.83%)</title><rect x="26.4" y="2181" width="245.8" height="15.0" fill="rgb(251,151,0)" rx="2" ry="2" />
+<text  x="29.39" y="2191.5" >0xc:PyObject_Call:0</text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_call_with_frames_removed:219 (1 samples, 1.39%)</title><rect x="911.4" y="1621" width="16.4" height="15.0" fill="rgb(183,183,52)" rx="2" ry="2" />
+<text  x="914.39" y="1631.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch5utils12_GLOBAL__N_115recursive_storeEPcN3c108ArrayRefIlEES5_lNS3_10ScalarTypeEiP7_object:0 (1 samples, 1.39%)</title><rect x="1009.7" y="2245" width="16.4" height="15.0" fill="rgb(208,108,0)" rx="2" ry="2" />
+<text  x="1012.72" y="2255.5" ></text>
+</g>
+<g >
+<title>0xc:PyCFunction_Call:0 (1 samples, 1.39%)</title><rect x="911.4" y="1605" width="16.4" height="15.0" fill="rgb(195,95,0)" rx="2" ry="2" />
+<text  x="914.39" y="1615.5" ></text>
+</g>
+<g >
+<title>0xc:PyImport_ImportModuleLevelObject:0 (1 samples, 1.39%)</title><rect x="960.6" y="1973" width="16.3" height="15.0" fill="rgb(191,91,0)" rx="2" ry="2" />
+<text  x="963.56" y="1983.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (14 samples, 19.44%)</title><rect x="26.4" y="2021" width="229.4" height="15.0" fill="rgb(236,136,0)" rx="2" ry="2" />
+<text  x="29.39" y="2031.5" >0xc:_PyEval_EvalCodeWithName:0</text>
+</g>
+<g >
+<title>0xc:THFloatTensor_addmm:0 (2 samples, 2.78%)</title><rect x="206.7" y="1621" width="32.7" height="15.0" fill="rgb(204,104,0)" rx="2" ry="2" />
+<text  x="209.67" y="1631.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="993.3" y="2197" width="16.4" height="15.0" fill="rgb(231,131,0)" rx="2" ry="2" />
+<text  x="996.33" y="2207.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (14 samples, 19.44%)</title><rect x="26.4" y="1877" width="229.4" height="15.0" fill="rgb(215,115,0)" rx="2" ry="2" />
+<text  x="29.39" y="1887.5" >0xc:call_function:0</text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="895.0" y="1477" width="16.4" height="15.0" fill="rgb(225,125,0)" rx="2" ry="2" />
+<text  x="898.00" y="1487.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN3c1013intrusive_ptrINS_10TensorImplENS_6detail34intrusive_target_default_null_typeIS1_EEE7retain_Ev:0 (1 samples, 1.39%)</title><rect x="10.0" y="2165" width="16.4" height="15.0" fill="rgb(221,121,0)" rx="2" ry="2" />
+<text  x="13.00" y="2175.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2309" width="16.4" height="15.0" fill="rgb(219,119,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2319.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="895.0" y="1637" width="16.4" height="15.0" fill="rgb(235,135,0)" rx="2" ry="2" />
+<text  x="898.00" y="1647.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (2 samples, 2.78%)</title><rect x="1108.1" y="2437" width="32.7" height="15.0" fill="rgb(239,139,0)" rx="2" ry="2" />
+<text  x="1111.06" y="2447.5" >0x..</text>
+</g>
+<g >
+<title>0xc:PyCFunction_Call:0 (1 samples, 1.39%)</title><rect x="960.6" y="229" width="16.3" height="15.0" fill="rgb(246,146,0)" rx="2" ry="2" />
+<text  x="963.56" y="239.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="927.8" y="1893" width="16.4" height="15.0" fill="rgb(253,153,0)" rx="2" ry="2" />
+<text  x="930.78" y="1903.5" ></text>
+</g>
+<g >
+<title>0xc:cfree:0 (1 samples, 1.39%)</title><rect x="223.1" y="1541" width="16.3" height="15.0" fill="rgb(210,110,0)" rx="2" ry="2" />
+<text  x="226.06" y="1551.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN2at7getTypeEPKN3c1010TensorImplE:0 (1 samples, 1.39%)</title><rect x="862.2" y="2309" width="16.4" height="15.0" fill="rgb(218,118,0)" rx="2" ry="2" />
+<text  x="865.22" y="2319.5" ></text>
+</g>
+<g >
+<title>0xc:subtype_dealloc:0 (2 samples, 2.78%)</title><rect x="1058.9" y="2421" width="32.8" height="15.0" fill="rgb(232,132,0)" rx="2" ry="2" />
+<text  x="1061.89" y="2431.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="1637" width="16.3" height="15.0" fill="rgb(197,97,0)" rx="2" ry="2" />
+<text  x="963.56" y="1647.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK5torch8autograd12VariableType4lstmERKN2at6TensorEN3c108ArrayRefIS3_EES8_bldbbb:0 (14 samples, 19.44%)</title><rect x="26.4" y="1829" width="229.4" height="15.0" fill="rgb(246,146,0)" rx="2" ry="2" />
+<text  x="29.39" y="1839.5" >0xc:_ZNK5torch8autograd12Varia..</text>
+</g>
+<g >
+<title>0xc:_ZNSt14_Function_base13_Base_managerIZN2atL12loop_wrapperERKSt8functionIFviPPcPKllEEEUliS4_S6_llE_E10_M_managerERSt9_Any_dataRKSD_St18_Manager_operation:0 (1 samples, 1.39%)</title><rect x="223.1" y="1557" width="16.3" height="15.0" fill="rgb(211,111,0)" rx="2" ry="2" />
+<text  x="226.06" y="1567.5" ></text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="960.6" y="1461" width="16.3" height="15.0" fill="rgb(215,115,0)" rx="2" ry="2" />
+<text  x="963.56" y="1471.5" ></text>
+</g>
+<g >
+<title>0xc:PyCFunction_Call:0 (1 samples, 1.39%)</title><rect x="960.6" y="629" width="16.3" height="15.0" fill="rgb(196,96,0)" rx="2" ry="2" />
+<text  x="963.56" y="639.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autograd11as_variableEN2at6TensorE:0 (2 samples, 2.78%)</title><rect x="124.7" y="1717" width="32.8" height="15.0" fill="rgb(206,106,0)" rx="2" ry="2" />
+<text  x="127.72" y="1727.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyCFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="255.8" y="1925" width="16.4" height="15.0" fill="rgb(245,145,0)" rx="2" ry="2" />
+<text  x="258.83" y="1935.5" ></text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCodeEx:0 (4 samples, 5.56%)</title><rect x="895.0" y="2021" width="65.6" height="15.0" fill="rgb(237,137,0)" rx="2" ry="2" />
+<text  x="898.00" y="2031.5" >0xc:PyE..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="895.0" y="853" width="16.4" height="15.0" fill="rgb(236,136,0)" rx="2" ry="2" />
+<text  x="898.00" y="863.5" ></text>
+</g>
+<g >
+<title>0xc:gen_send_ex:0 (2 samples, 2.78%)</title><rect x="976.9" y="2277" width="32.8" height="15.0" fill="rgb(233,133,0)" rx="2" ry="2" />
+<text  x="979.94" y="2287.5" >0x..</text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCode:0 (1 samples, 1.39%)</title><rect x="911.4" y="1573" width="16.4" height="15.0" fill="rgb(249,149,0)" rx="2" ry="2" />
+<text  x="914.39" y="1583.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (2 samples, 2.78%)</title><rect x="1140.8" y="2389" width="32.8" height="15.0" fill="rgb(220,120,0)" rx="2" ry="2" />
+<text  x="1143.83" y="2399.5" >0x..</text>
+</g>
+<g >
+<title>0xc:PyImport_ImportModuleLevelObject:0 (1 samples, 1.39%)</title><rect x="911.4" y="1509" width="16.4" height="15.0" fill="rgb(207,107,0)" rx="2" ry="2" />
+<text  x="914.39" y="1519.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="272.2" y="2197" width="16.4" height="15.0" fill="rgb(253,153,0)" rx="2" ry="2" />
+<text  x="275.22" y="2207.5" ></text>
+</g>
+<g >
+<title>0xc:PyRun_FileExFlags:0 (71 samples, 98.61%)</title><rect x="10.0" y="2533" width="1163.6" height="15.0" fill="rgb(244,144,0)" rx="2" ry="2" />
+<text  x="13.00" y="2543.5" >0xc:PyRun_FileExFlags:0</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="2309" width="16.3" height="15.0" fill="rgb(208,108,0)" rx="2" ry="2" />
+<text  x="963.56" y="2319.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2069" width="16.4" height="15.0" fill="rgb(228,128,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2079.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="1877" width="16.3" height="15.0" fill="rgb(216,116,0)" rx="2" ry="2" />
+<text  x="963.56" y="1887.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="927.8" y="1829" width="16.4" height="15.0" fill="rgb(205,105,0)" rx="2" ry="2" />
+<text  x="930.78" y="1839.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap_external&gt;:create_module:922 (1 samples, 1.39%)</title><rect x="944.2" y="1637" width="16.4" height="15.0" fill="rgb(196,196,57)" rx="2" ry="2" />
+<text  x="947.17" y="1647.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="911.4" y="1845" width="16.4" height="15.0" fill="rgb(239,139,0)" rx="2" ry="2" />
+<text  x="914.39" y="1855.5" ></text>
+</g>
+<g >
+<title>0xc:cfree:0 (1 samples, 1.39%)</title><rect x="1075.3" y="2213" width="16.4" height="15.0" fill="rgb(191,91,0)" rx="2" ry="2" />
+<text  x="1078.28" y="2223.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="944.2" y="1813" width="16.4" height="15.0" fill="rgb(230,130,0)" rx="2" ry="2" />
+<text  x="947.17" y="1823.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (4 samples, 5.56%)</title><rect x="895.0" y="2261" width="65.6" height="15.0" fill="rgb(244,144,0)" rx="2" ry="2" />
+<text  x="898.00" y="2271.5" >0xc:fas..</text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/nn/modules/module.py:named_parameters:840 (2 samples, 2.78%)</title><rect x="976.9" y="2293" width="32.8" height="15.0" fill="rgb(106,251,106)" rx="2" ry="2" />
+<text  x="979.94" y="2303.5" >/h..</text>
+</g>
+<g >
+<title>test2.py:&lt;module&gt;:85 (1 samples, 1.39%)</title><rect x="1026.1" y="2453" width="16.4" height="15.0" fill="rgb(66,215,66)" rx="2" ry="2" />
+<text  x="1029.11" y="2463.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (14 samples, 19.44%)</title><rect x="26.4" y="1941" width="229.4" height="15.0" fill="rgb(233,133,0)" rx="2" ry="2" />
+<text  x="29.39" y="1951.5" >0xc:_PyEval_EvalFrameDefault:0</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="1781" width="16.3" height="15.0" fill="rgb(251,151,0)" rx="2" ry="2" />
+<text  x="963.56" y="1791.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2309" width="16.4" height="15.0" fill="rgb(228,128,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2319.5" ></text>
+</g>
+<g >
+<title>0xc:dlopen:0 (1 samples, 1.39%)</title><rect x="944.2" y="1477" width="16.4" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="947.17" y="1487.5" ></text>
+</g>
+<g >
+<title>0xc:PyFrame_New:0 (1 samples, 1.39%)</title><rect x="927.8" y="1605" width="16.4" height="15.0" fill="rgb(234,134,0)" rx="2" ry="2" />
+<text  x="930.78" y="1615.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autograd9generated12MulBackward0D0Ev:0 (1 samples, 1.39%)</title><rect x="1075.3" y="2245" width="16.4" height="15.0" fill="rgb(241,141,0)" rx="2" ry="2" />
+<text  x="1078.28" y="2255.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="944.2" y="1717" width="16.4" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="947.17" y="1727.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN3c1010TensorImplD0Ev:0 (2 samples, 2.78%)</title><rect x="91.9" y="1701" width="32.8" height="15.0" fill="rgb(221,121,0)" rx="2" ry="2" />
+<text  x="94.94" y="1711.5" >0x..</text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="911.4" y="1861" width="16.4" height="15.0" fill="rgb(190,90,0)" rx="2" ry="2" />
+<text  x="914.39" y="1871.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_Call_Prepend:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2117" width="16.4" height="15.0" fill="rgb(229,129,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2127.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="960.6" y="677" width="16.3" height="15.0" fill="rgb(237,137,0)" rx="2" ry="2" />
+<text  x="963.56" y="687.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_CallMethodIdObjArgs:0 (1 samples, 1.39%)</title><rect x="960.6" y="805" width="16.3" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="963.56" y="815.5" ></text>
+</g>
+<g >
+<title>0xc:pthread_cond_wait:0 (35 samples, 48.61%)</title><rect x="288.6" y="2213" width="573.6" height="15.0" fill="rgb(197,97,0)" rx="2" ry="2" />
+<text  x="291.61" y="2223.5" >0xc:pthread_cond_wait:0</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="960.6" y="757" width="16.3" height="15.0" fill="rgb(207,107,0)" rx="2" ry="2" />
+<text  x="963.56" y="767.5" ></text>
+</g>
+<g >
+<title>0xc:PyUnicode_FromFormatV:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2117" width="16.4" height="15.0" fill="rgb(196,96,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2127.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1269" width="16.4" height="15.0" fill="rgb(193,93,0)" rx="2" ry="2" />
+<text  x="898.00" y="1279.5" ></text>
+</g>
+<g >
+<title>0xc:PyImport_ImportModuleLevelObject:0 (1 samples, 1.39%)</title><rect x="895.0" y="1509" width="16.4" height="15.0" fill="rgb(242,142,0)" rx="2" ry="2" />
+<text  x="898.00" y="1519.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2437" width="16.4" height="15.0" fill="rgb(208,108,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2447.5" ></text>
+</g>
+<g >
+<title>0xc:__pthread_enable_asynccancel:0 (1 samples, 1.39%)</title><rect x="845.8" y="2197" width="16.4" height="15.0" fill="rgb(232,132,0)" rx="2" ry="2" />
+<text  x="848.83" y="2207.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_CallMethodIdObjArgs:0 (1 samples, 1.39%)</title><rect x="960.6" y="1269" width="16.3" height="15.0" fill="rgb(242,142,0)" rx="2" ry="2" />
+<text  x="963.56" y="1279.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (14 samples, 19.44%)</title><rect x="26.4" y="2005" width="229.4" height="15.0" fill="rgb(249,149,0)" rx="2" ry="2" />
+<text  x="29.39" y="2015.5" >0xc:_PyEval_EvalFrameDefault:0</text>
+</g>
+<g >
+<title>0xc:call_function:0 (2 samples, 2.78%)</title><rect x="1140.8" y="2437" width="32.8" height="15.0" fill="rgb(215,115,0)" rx="2" ry="2" />
+<text  x="1143.83" y="2447.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyCFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="272.2" y="2149" width="16.4" height="15.0" fill="rgb(247,147,0)" rx="2" ry="2" />
+<text  x="275.22" y="2159.5" ></text>
+</g>
+<g >
+<title>0xc:_PyIncrementalNewlineDecoder_decode:0 (1 samples, 1.39%)</title><rect x="927.8" y="1717" width="16.4" height="15.0" fill="rgb(220,120,0)" rx="2" ry="2" />
+<text  x="930.78" y="1727.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="911.4" y="1541" width="16.4" height="15.0" fill="rgb(206,106,0)" rx="2" ry="2" />
+<text  x="914.39" y="1551.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="373" width="16.3" height="15.0" fill="rgb(206,106,0)" rx="2" ry="2" />
+<text  x="963.56" y="383.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (2 samples, 2.78%)</title><rect x="1140.8" y="2421" width="32.8" height="15.0" fill="rgb(197,97,0)" rx="2" ry="2" />
+<text  x="1143.83" y="2431.5" >0x..</text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="293" width="16.3" height="15.0" fill="rgb(227,127,0)" rx="2" ry="2" />
+<text  x="963.56" y="303.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="911.4" y="1877" width="16.4" height="15.0" fill="rgb(219,119,0)" rx="2" ry="2" />
+<text  x="914.39" y="1887.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="944.2" y="1781" width="16.4" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="947.17" y="1791.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2245" width="16.4" height="15.0" fill="rgb(207,107,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2255.5" ></text>
+</g>
+<g >
+<title>0xc:_PyCFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="927.8" y="1749" width="16.4" height="15.0" fill="rgb(233,133,0)" rx="2" ry="2" />
+<text  x="930.78" y="1759.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (35 samples, 48.61%)</title><rect x="288.6" y="2341" width="573.6" height="15.0" fill="rgb(249,149,0)" rx="2" ry="2" />
+<text  x="291.61" y="2351.5" >0xc:_PyEval_EvalFrameDefault:0</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (4 samples, 5.56%)</title><rect x="895.0" y="2245" width="65.6" height="15.0" fill="rgb(222,122,0)" rx="2" ry="2" />
+<text  x="898.00" y="2255.5" >0xc:_Py..</text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/__init__.py:&lt;module&gt;:287 (1 samples, 1.39%)</title><rect x="911.4" y="1989" width="16.4" height="15.0" fill="rgb(74,222,74)" rx="2" ry="2" />
+<text  x="914.39" y="1999.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (2 samples, 2.78%)</title><rect x="976.9" y="2357" width="32.8" height="15.0" fill="rgb(243,143,0)" rx="2" ry="2" />
+<text  x="979.94" y="2367.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyObject_Call_Prepend:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2261" width="16.4" height="15.0" fill="rgb(249,149,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2271.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="117" width="16.3" height="15.0" fill="rgb(200,100,0)" rx="2" ry="2" />
+<text  x="963.56" y="127.5" ></text>
+</g>
+<g >
+<title>0xc:slot_tp_call:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2405" width="16.4" height="15.0" fill="rgb(204,104,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2415.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="944.2" y="1861" width="16.4" height="15.0" fill="rgb(199,99,0)" rx="2" ry="2" />
+<text  x="947.17" y="1871.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="309" width="16.3" height="15.0" fill="rgb(190,90,0)" rx="2" ry="2" />
+<text  x="963.56" y="319.5" ></text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (15 samples, 20.83%)</title><rect x="26.4" y="2133" width="245.8" height="15.0" fill="rgb(234,134,0)" rx="2" ry="2" />
+<text  x="29.39" y="2143.5" >0xc:_PyFunction_FastCallDict:0</text>
+</g>
+<g >
+<title>0xc:set_dealloc:0 (1 samples, 1.39%)</title><rect x="976.9" y="2197" width="16.4" height="15.0" fill="rgb(244,144,0)" rx="2" ry="2" />
+<text  x="979.94" y="2207.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (4 samples, 5.56%)</title><rect x="895.0" y="2181" width="65.6" height="15.0" fill="rgb(224,124,0)" rx="2" ry="2" />
+<text  x="898.00" y="2191.5" >0xc:_Py..</text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="1061" width="16.3" height="15.0" fill="rgb(220,120,0)" rx="2" ry="2" />
+<text  x="963.56" y="1071.5" ></text>
+</g>
+<g >
+<title>0xc:_dl_rtld_di_serinfo:0 (1 samples, 1.39%)</title><rect x="944.2" y="1365" width="16.4" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="947.17" y="1375.5" ></text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/__init__.py:&lt;module&gt;:79 (1 samples, 1.39%)</title><rect x="944.2" y="1989" width="16.4" height="15.0" fill="rgb(65,214,65)" rx="2" ry="2" />
+<text  x="947.17" y="1999.5" ></text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/numpy/core/__init__.py:&lt;module&gt;:121 (1 samples, 1.39%)</title><rect x="960.6" y="725" width="16.3" height="15.0" fill="rgb(67,215,67)" rx="2" ry="2" />
+<text  x="963.56" y="735.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN2at6native8nll_lossERKNS_6TensorES3_S3_ll:0 (1 samples, 1.39%)</title><rect x="272.2" y="2085" width="16.4" height="15.0" fill="rgb(212,112,0)" rx="2" ry="2" />
+<text  x="275.22" y="2095.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="911.4" y="1317" width="16.4" height="15.0" fill="rgb(250,150,0)" rx="2" ry="2" />
+<text  x="914.39" y="1327.5" ></text>
+</g>
+<g >
+<title>test2.py:&lt;module&gt;:10 (1 samples, 1.39%)</title><rect x="960.6" y="2357" width="16.3" height="15.0" fill="rgb(81,229,81)" rx="2" ry="2" />
+<text  x="963.56" y="2367.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autogradL15gatherFunctionsEPNS0_8FunctionERSt6vectorISt10shared_ptrIS1_ESaIS5_EE:0 (1 samples, 1.39%)</title><rect x="1058.9" y="2277" width="16.4" height="15.0" fill="rgb(190,90,0)" rx="2" ry="2" />
+<text  x="1061.89" y="2287.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN2at6native9empty_cpuEN3c108ArrayRefIlEERKNS1_13TensorOptionsE:0 (1 samples, 1.39%)</title><rect x="239.4" y="1685" width="16.4" height="15.0" fill="rgb(210,110,0)" rx="2" ry="2" />
+<text  x="242.44" y="1695.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN3c1010TensorImplC1EONS_7StorageENS_12TensorTypeIdERKN6caffe28TypeMetaENS_8optionalINS_6DeviceEEE:0 (2 samples, 2.78%)</title><rect x="124.7" y="1669" width="32.8" height="15.0" fill="rgb(245,145,0)" rx="2" ry="2" />
+<text  x="127.72" y="1679.5" >0x..</text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCode:0 (1 samples, 1.39%)</title><rect x="895.0" y="1109" width="16.4" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="898.00" y="1119.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="1733" width="16.3" height="15.0" fill="rgb(199,99,0)" rx="2" ry="2" />
+<text  x="963.56" y="1743.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="272.2" y="2165" width="16.4" height="15.0" fill="rgb(244,144,0)" rx="2" ry="2" />
+<text  x="275.22" y="2175.5" ></text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/autograd/__init__.py:backward:93 (2 samples, 2.78%)</title><rect x="1108.1" y="2293" width="32.7" height="15.0" fill="rgb(96,242,96)" rx="2" ry="2" />
+<text  x="1111.06" y="2303.5" >/h..</text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/nn/modules/module.py:_named_members:787 (1 samples, 1.39%)</title><rect x="993.3" y="2245" width="16.4" height="15.0" fill="rgb(93,240,93)" rx="2" ry="2" />
+<text  x="996.33" y="2255.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="911.4" y="1813" width="16.4" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="914.39" y="1823.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap_external&gt;:exec_module:678 (1 samples, 1.39%)</title><rect x="895.0" y="1701" width="16.4" height="15.0" fill="rgb(186,186,54)" rx="2" ry="2" />
+<text  x="898.00" y="1711.5" ></text>
+</g>
+<g >
+<title>test2.py:&lt;module&gt;:91 (2 samples, 2.78%)</title><rect x="1140.8" y="2453" width="32.8" height="15.0" fill="rgb(78,225,78)" rx="2" ry="2" />
+<text  x="1143.83" y="2463.5" >te..</text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1221" width="16.4" height="15.0" fill="rgb(196,96,0)" rx="2" ry="2" />
+<text  x="898.00" y="1231.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap_external&gt;:exec_module:678 (1 samples, 1.39%)</title><rect x="911.4" y="1701" width="16.4" height="15.0" fill="rgb(216,216,65)" rx="2" ry="2" />
+<text  x="914.39" y="1711.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (15 samples, 20.83%)</title><rect x="26.4" y="2053" width="245.8" height="15.0" fill="rgb(206,106,0)" rx="2" ry="2" />
+<text  x="29.39" y="2063.5" >0xc:_PyObject_FastCallDict:0</text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="911.4" y="1733" width="16.4" height="15.0" fill="rgb(234,134,0)" rx="2" ry="2" />
+<text  x="914.39" y="1743.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (4 samples, 5.56%)</title><rect x="895.0" y="2341" width="65.6" height="15.0" fill="rgb(222,122,0)" rx="2" ry="2" />
+<text  x="898.00" y="2351.5" >0xc:cal..</text>
+</g>
+<g >
+<title>0xc:__libc_malloc:0 (1 samples, 1.39%)</title><rect x="1058.9" y="2229" width="16.4" height="15.0" fill="rgb(234,134,0)" rx="2" ry="2" />
+<text  x="1061.89" y="2239.5" ></text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCode:0 (1 samples, 1.39%)</title><rect x="960.6" y="197" width="16.3" height="15.0" fill="rgb(240,140,0)" rx="2" ry="2" />
+<text  x="963.56" y="207.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_load_unlocked:665 (1 samples, 1.39%)</title><rect x="960.6" y="1013" width="16.3" height="15.0" fill="rgb(219,219,66)" rx="2" ry="2" />
+<text  x="963.56" y="1023.5" ></text>
+</g>
+<g >
+<title>0xc:cfree:0 (1 samples, 1.39%)</title><rect x="911.4" y="1237" width="16.4" height="15.0" fill="rgb(226,126,0)" rx="2" ry="2" />
+<text  x="914.39" y="1247.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN2atL5stackEN3c108ArrayRefINS_6TensorEEEl.constprop.307:0 (4 samples, 5.56%)</title><rect x="26.4" y="1781" width="65.5" height="15.0" fill="rgb(195,95,0)" rx="2" ry="2" />
+<text  x="29.39" y="1791.5" >0xc:_ZN..</text>
+</g>
+<g >
+<title>0xc:builtin_exec:0 (1 samples, 1.39%)</title><rect x="960.6" y="901" width="16.3" height="15.0" fill="rgb(205,105,0)" rx="2" ry="2" />
+<text  x="963.56" y="911.5" ></text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/__init__.py:&lt;module&gt;:42 (1 samples, 1.39%)</title><rect x="960.6" y="1893" width="16.3" height="15.0" fill="rgb(79,226,79)" rx="2" ry="2" />
+<text  x="963.56" y="1903.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="927.8" y="1877" width="16.4" height="15.0" fill="rgb(203,103,0)" rx="2" ry="2" />
+<text  x="930.78" y="1887.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="1845" width="16.3" height="15.0" fill="rgb(235,135,0)" rx="2" ry="2" />
+<text  x="963.56" y="1855.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_load_unlocked:665 (1 samples, 1.39%)</title><rect x="911.4" y="1765" width="16.4" height="15.0" fill="rgb(227,227,69)" rx="2" ry="2" />
+<text  x="914.39" y="1775.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN2at6native4lstmERKNS_6TensorEN3c108ArrayRefIS1_EES6_bldbbb:0 (14 samples, 19.44%)</title><rect x="26.4" y="1797" width="229.4" height="15.0" fill="rgb(254,154,0)" rx="2" ry="2" />
+<text  x="29.39" y="1807.5" >0xc:_ZN2at6native4lstmERKNS_6T..</text>
+</g>
+<g >
+<title>test2.py:prepare_sequence:19 (1 samples, 1.39%)</title><rect x="1009.7" y="2373" width="16.4" height="15.0" fill="rgb(63,212,63)" rx="2" ry="2" />
+<text  x="1012.72" y="2383.5" ></text>
+</g>
+<g >
+<title>0xc:_Z22THPEngine_run_backwardP9THPEngineP7_objectS2_:0 (35 samples, 48.61%)</title><rect x="288.6" y="2277" width="573.6" height="15.0" fill="rgb(225,125,0)" rx="2" ry="2" />
+<text  x="291.61" y="2287.5" >0xc:_Z22THPEngine_run_backwardP9THPEngineP7_objectS2_:0</text>
+</g>
+<g >
+<title>0xc:vgetargskeywords:0 (2 samples, 2.78%)</title><rect x="1108.1" y="2197" width="32.7" height="15.0" fill="rgb(221,121,0)" rx="2" ry="2" />
+<text  x="1111.06" y="2207.5" >0x..</text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="944.2" y="1605" width="16.4" height="15.0" fill="rgb(241,141,0)" rx="2" ry="2" />
+<text  x="947.17" y="1615.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (14 samples, 19.44%)</title><rect x="26.4" y="1909" width="229.4" height="15.0" fill="rgb(234,134,0)" rx="2" ry="2" />
+<text  x="29.39" y="1919.5" >0xc:fast_function:0</text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1205" width="16.4" height="15.0" fill="rgb(236,136,0)" rx="2" ry="2" />
+<text  x="898.00" y="1215.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="1009.7" y="2421" width="16.4" height="15.0" fill="rgb(221,121,0)" rx="2" ry="2" />
+<text  x="1012.72" y="2431.5" ></text>
+</g>
+<g >
+<title>0xc:_PyCFunction_FastCallDict:0 (2 samples, 2.78%)</title><rect x="862.2" y="2389" width="32.8" height="15.0" fill="rgb(227,127,0)" rx="2" ry="2" />
+<text  x="865.22" y="2399.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="993.3" y="2133" width="16.4" height="15.0" fill="rgb(220,120,0)" rx="2" ry="2" />
+<text  x="996.33" y="2143.5" ></text>
+</g>
+<g >
+<title>0xc:THTensor_resizeNd:0 (1 samples, 1.39%)</title><rect x="206.7" y="1605" width="16.4" height="15.0" fill="rgb(209,109,0)" rx="2" ry="2" />
+<text  x="209.67" y="1615.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN3c1015GetCPUAllocatorEv:0 (1 samples, 1.39%)</title><rect x="239.4" y="1669" width="16.4" height="15.0" fill="rgb(228,128,0)" rx="2" ry="2" />
+<text  x="242.44" y="1679.5" ></text>
+</g>
+<g >
+<title>0xc:PyObject_CallFunctionObjArgs:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2149" width="16.4" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2159.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="960.6" y="2117" width="16.3" height="15.0" fill="rgb(251,151,0)" rx="2" ry="2" />
+<text  x="963.56" y="2127.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="1813" width="16.3" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="963.56" y="1823.5" ></text>
+</g>
+<g >
+<title>0xc:PyImport_ImportModuleLevelObject:0 (1 samples, 1.39%)</title><rect x="960.6" y="821" width="16.3" height="15.0" fill="rgb(190,90,0)" rx="2" ry="2" />
+<text  x="963.56" y="831.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (35 samples, 48.61%)</title><rect x="288.6" y="2389" width="573.6" height="15.0" fill="rgb(230,130,0)" rx="2" ry="2" />
+<text  x="291.61" y="2399.5" >0xc:call_function:0</text>
+</g>
+<g >
+<title>0xc:_PyObject_Call_Prepend:0 (1 samples, 1.39%)</title><rect x="927.8" y="1669" width="16.4" height="15.0" fill="rgb(215,115,0)" rx="2" ry="2" />
+<text  x="930.78" y="1679.5" ></text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (17 samples, 23.61%)</title><rect x="10.0" y="2357" width="278.6" height="15.0" fill="rgb(234,134,0)" rx="2" ry="2" />
+<text  x="13.00" y="2367.5" >0xc:_PyFunction_FastCallDict:0</text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="944.2" y="1621" width="16.4" height="15.0" fill="rgb(237,137,0)" rx="2" ry="2" />
+<text  x="947.17" y="1631.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="165" width="16.3" height="15.0" fill="rgb(192,92,0)" rx="2" ry="2" />
+<text  x="963.56" y="175.5" ></text>
+</g>
+<g >
+<title>0xc:getset_get:0 (1 samples, 1.39%)</title><rect x="1140.8" y="2341" width="16.4" height="15.0" fill="rgb(190,90,0)" rx="2" ry="2" />
+<text  x="1143.83" y="2351.5" ></text>
+</g>
+<g >
+<title>0xc:PyCFunction_Call:0 (1 samples, 1.39%)</title><rect x="895.0" y="1605" width="16.4" height="15.0" fill="rgb(239,139,0)" rx="2" ry="2" />
+<text  x="898.00" y="1615.5" ></text>
+</g>
+<g >
+<title>0xc:PyErr_Occurred:0 (1 samples, 1.39%)</title><rect x="960.6" y="37" width="16.3" height="15.0" fill="rgb(245,145,0)" rx="2" ry="2" />
+<text  x="963.56" y="47.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK2at6native12_GLOBAL__N_19FullLayerISt5tupleIINS_6TensorES4_EENS1_10CellParamsEEclESt6vectorIS4_SaIS4_EERKS5_RKS6_.isra.281:0 (10 samples, 13.89%)</title><rect x="91.9" y="1781" width="163.9" height="15.0" fill="rgb(252,152,0)" rx="2" ry="2" />
+<text  x="94.94" y="1791.5" >0xc:_ZNK2at6native12_..</text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="911.4" y="1461" width="16.4" height="15.0" fill="rgb(233,133,0)" rx="2" ry="2" />
+<text  x="914.39" y="1471.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (5 samples, 6.94%)</title><rect x="895.0" y="2405" width="81.9" height="15.0" fill="rgb(252,152,0)" rx="2" ry="2" />
+<text  x="898.00" y="2415.5" >0xc:_PyOb..</text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="911.4" y="1797" width="16.4" height="15.0" fill="rgb(192,92,0)" rx="2" ry="2" />
+<text  x="914.39" y="1807.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1861" width="16.4" height="15.0" fill="rgb(230,130,0)" rx="2" ry="2" />
+<text  x="898.00" y="1871.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="911.4" y="1477" width="16.4" height="15.0" fill="rgb(209,109,0)" rx="2" ry="2" />
+<text  x="914.39" y="1487.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="272.2" y="2181" width="16.4" height="15.0" fill="rgb(206,106,0)" rx="2" ry="2" />
+<text  x="275.22" y="2191.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="944.2" y="1845" width="16.4" height="15.0" fill="rgb(220,120,0)" rx="2" ry="2" />
+<text  x="947.17" y="1855.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (17 samples, 23.61%)</title><rect x="10.0" y="2277" width="278.6" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="13.00" y="2287.5" >0xc:_PyObject_FastCallDict:0</text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2101" width="16.4" height="15.0" fill="rgb(237,137,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2111.5" ></text>
+</g>
+<g >
+<title>0xc:slot_tp_getattr_hook:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2181" width="16.4" height="15.0" fill="rgb(209,109,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2191.5" ></text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/nn/modules/loss.py:forward:209 (1 samples, 1.39%)</title><rect x="1091.7" y="2197" width="16.4" height="15.0" fill="rgb(61,210,61)" rx="2" ry="2" />
+<text  x="1094.67" y="2207.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK2at11TypeDefault5addmmERKNS_6TensorES3_S3_N3c106ScalarES5_:0 (2 samples, 2.78%)</title><rect x="206.7" y="1685" width="32.7" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="209.67" y="1695.5" >0x..</text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load_unlocked:955 (1 samples, 1.39%)</title><rect x="960.6" y="389" width="16.3" height="15.0" fill="rgb(186,186,54)" rx="2" ry="2" />
+<text  x="963.56" y="399.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2357" width="16.4" height="15.0" fill="rgb(249,149,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2367.5" ></text>
+</g>
+<g >
+<title>test2.py:forward:57 (1 samples, 1.39%)</title><rect x="1026.1" y="2197" width="16.4" height="15.0" fill="rgb(96,243,96)" rx="2" ry="2" />
+<text  x="1029.11" y="2207.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK2at11TypeDefault9embeddingERKNS_6TensorES3_lbb:0 (1 samples, 1.39%)</title><rect x="255.8" y="1877" width="16.4" height="15.0" fill="rgb(241,141,0)" rx="2" ry="2" />
+<text  x="258.83" y="1887.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="2101" width="16.3" height="15.0" fill="rgb(230,130,0)" rx="2" ry="2" />
+<text  x="963.56" y="2111.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="911.4" y="1781" width="16.4" height="15.0" fill="rgb(236,136,0)" rx="2" ry="2" />
+<text  x="914.39" y="1791.5" ></text>
+</g>
+<g >
+<title>0xc:__libc_start_main:0 (71 samples, 98.61%)</title><rect x="10.0" y="2597" width="1163.6" height="15.0" fill="rgb(235,135,0)" rx="2" ry="2" />
+<text  x="13.00" y="2607.5" >0xc:__libc_start_main:0</text>
+</g>
+<g >
+<title>0xc:_ZN2at6native5addmmERKNS_6TensorES3_S3_N3c106ScalarES5_:0 (2 samples, 2.78%)</title><rect x="206.7" y="1669" width="32.7" height="15.0" fill="rgb(240,140,0)" rx="2" ry="2" />
+<text  x="209.67" y="1679.5" >0x..</text>
+</g>
+<g >
+<title>0xc:frame_dealloc:0 (1 samples, 1.39%)</title><rect x="976.9" y="2213" width="16.4" height="15.0" fill="rgb(224,124,0)" rx="2" ry="2" />
+<text  x="979.94" y="2223.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (4 samples, 5.56%)</title><rect x="895.0" y="2101" width="65.6" height="15.0" fill="rgb(234,134,0)" rx="2" ry="2" />
+<text  x="898.00" y="2111.5" >0xc:_Py..</text>
+</g>
+<g >
+<title>0xc:PyObject_Call:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2277" width="16.4" height="15.0" fill="rgb(242,142,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2287.5" ></text>
+</g>
+<g >
+<title>test2.py:&lt;module&gt;:90 (2 samples, 2.78%)</title><rect x="1108.1" y="2453" width="32.7" height="15.0" fill="rgb(60,209,60)" rx="2" ry="2" />
+<text  x="1111.06" y="2463.5" >te..</text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCode:0 (4 samples, 5.56%)</title><rect x="895.0" y="2037" width="65.6" height="15.0" fill="rgb(204,104,0)" rx="2" ry="2" />
+<text  x="898.00" y="2047.5" >0xc:PyE..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (2 samples, 2.78%)</title><rect x="862.2" y="2421" width="32.8" height="15.0" fill="rgb(223,123,0)" rx="2" ry="2" />
+<text  x="865.22" y="2431.5" >0x..</text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="927.8" y="1909" width="16.4" height="15.0" fill="rgb(223,123,0)" rx="2" ry="2" />
+<text  x="930.78" y="1919.5" ></text>
+</g>
+<g >
+<title>0xc:_Znwm:0 (2 samples, 2.78%)</title><rect x="157.5" y="1701" width="32.8" height="15.0" fill="rgb(229,129,0)" rx="2" ry="2" />
+<text  x="160.50" y="1711.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_ZN2at6native5zero_ERNS_6TensorE:0 (2 samples, 2.78%)</title><rect x="862.2" y="2325" width="32.8" height="15.0" fill="rgb(223,123,0)" rx="2" ry="2" />
+<text  x="865.22" y="2335.5" >0x..</text>
+</g>
+<g >
+<title>0xc:builtin_exec:0 (4 samples, 5.56%)</title><rect x="895.0" y="2053" width="65.6" height="15.0" fill="rgb(231,131,0)" rx="2" ry="2" />
+<text  x="898.00" y="2063.5" >0xc:bui..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (2 samples, 2.78%)</title><rect x="1108.1" y="2309" width="32.7" height="15.0" fill="rgb(211,111,0)" rx="2" ry="2" />
+<text  x="1111.06" y="2319.5" >0x..</text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="1173" width="16.3" height="15.0" fill="rgb(235,135,0)" rx="2" ry="2" />
+<text  x="963.56" y="1183.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNSt6vectorISt10shared_ptrIN5torch8autograd8FunctionEESaIS4_EE19_M_emplace_back_auxIJS4_EEEvDpOT_:0 (1 samples, 1.39%)</title><rect x="1058.9" y="2261" width="16.4" height="15.0" fill="rgb(199,99,0)" rx="2" ry="2" />
+<text  x="1061.89" y="2271.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK5torch8autograd12VariableType4viewERKN2at6TensorEN3c108ArrayRefIlEE:0 (1 samples, 1.39%)</title><rect x="10.0" y="2181" width="16.4" height="15.0" fill="rgb(209,109,0)" rx="2" ry="2" />
+<text  x="13.00" y="2191.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap_external&gt;:exec_module:678 (1 samples, 1.39%)</title><rect x="895.0" y="1237" width="16.4" height="15.0" fill="rgb(179,179,51)" rx="2" ry="2" />
+<text  x="898.00" y="1247.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK2at7CPUType5emptyEN3c108ArrayRefIlEERKNS1_13TensorOptionsE:0 (1 samples, 1.39%)</title><rect x="239.4" y="1701" width="16.4" height="15.0" fill="rgb(193,93,0)" rx="2" ry="2" />
+<text  x="242.44" y="1711.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_CallMethodIdObjArgs:0 (1 samples, 1.39%)</title><rect x="960.6" y="581" width="16.3" height="15.0" fill="rgb(247,147,0)" rx="2" ry="2" />
+<text  x="963.56" y="591.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load:971 (1 samples, 1.39%)</title><rect x="960.6" y="1829" width="16.3" height="15.0" fill="rgb(219,219,66)" rx="2" ry="2" />
+<text  x="963.56" y="1839.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="895.0" y="1541" width="16.4" height="15.0" fill="rgb(196,96,0)" rx="2" ry="2" />
+<text  x="898.00" y="1551.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1285" width="16.4" height="15.0" fill="rgb(234,134,0)" rx="2" ry="2" />
+<text  x="898.00" y="1295.5" ></text>
+</g>
+<g >
+<title>0xc:_PyCFunction_FastCallKeywords:0 (35 samples, 48.61%)</title><rect x="288.6" y="2309" width="573.6" height="15.0" fill="rgb(237,137,0)" rx="2" ry="2" />
+<text  x="291.61" y="2319.5" >0xc:_PyCFunction_FastCallKeywords:0</text>
+</g>
+<g >
+<title>0xc:_Z41__static_initialization_and_destruction_0ii.constprop.930:0 (1 samples, 1.39%)</title><rect x="944.2" y="1333" width="16.4" height="15.0" fill="rgb(234,134,0)" rx="2" ry="2" />
+<text  x="947.17" y="1343.5" ></text>
+</g>
+<g >
+<title>test2.py:&lt;module&gt;:89 (4 samples, 5.56%)</title><rect x="1042.5" y="2453" width="65.6" height="15.0" fill="rgb(52,202,52)" rx="2" ry="2" />
+<text  x="1045.50" y="2463.5" >test2.p..</text>
+</g>
+<g >
+<title>0xc:call_function:0 (14 samples, 19.44%)</title><rect x="26.4" y="1925" width="229.4" height="15.0" fill="rgb(236,136,0)" rx="2" ry="2" />
+<text  x="29.39" y="1935.5" >0xc:call_function:0</text>
+</g>
+<g >
+<title>0xc:_ZNK2at11TypeDefault5stackEN3c108ArrayRefINS_6TensorEEEl:0 (2 samples, 2.78%)</title><rect x="59.2" y="1749" width="32.7" height="15.0" fill="rgb(209,109,0)" rx="2" ry="2" />
+<text  x="62.17" y="1759.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_ZNSt18condition_variable4waitERSt11unique_lockISt5mutexE:0 (35 samples, 48.61%)</title><rect x="288.6" y="2229" width="573.6" height="15.0" fill="rgb(203,103,0)" rx="2" ry="2" />
+<text  x="291.61" y="2239.5" >0xc:_ZNSt18condition_variable4waitERSt11unique_lockISt5mutexE:0</text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="709" width="16.3" height="15.0" fill="rgb(240,140,0)" rx="2" ry="2" />
+<text  x="963.56" y="719.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="895.0" y="1845" width="16.4" height="15.0" fill="rgb(227,127,0)" rx="2" ry="2" />
+<text  x="898.00" y="1855.5" ></text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/optim/sgd.py:step:91 (1 samples, 1.39%)</title><rect x="1157.2" y="2373" width="16.4" height="15.0" fill="rgb(89,235,89)" rx="2" ry="2" />
+<text  x="1160.22" y="2383.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="895.0" y="997" width="16.4" height="15.0" fill="rgb(241,141,0)" rx="2" ry="2" />
+<text  x="898.00" y="1007.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autograd6python12PythonEngine7executeERKSt6vectorINS0_4EdgeESaIS4_EERKS3_INS0_8VariableESaIS9_EEbbS8_:0 (35 samples, 48.61%)</title><rect x="288.6" y="2261" width="573.6" height="15.0" fill="rgb(248,148,0)" rx="2" ry="2" />
+<text  x="291.61" y="2271.5" >0xc:_ZN5torch8autograd6python12PythonEngine7executeERKSt6vectorINS0_4EdgeESaIS4..</text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1397" width="16.4" height="15.0" fill="rgb(241,141,0)" rx="2" ry="2" />
+<text  x="898.00" y="1407.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK5torch8autograd12VariableType8nll_lossERKN2at6TensorES5_S5_ll:0 (1 samples, 1.39%)</title><rect x="272.2" y="2117" width="16.4" height="15.0" fill="rgb(206,106,0)" rx="2" ry="2" />
+<text  x="275.22" y="2127.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN2at6native9unsqueezeERKNS_6TensorEl:0 (2 samples, 2.78%)</title><rect x="59.2" y="1701" width="32.7" height="15.0" fill="rgb(198,98,0)" rx="2" ry="2" />
+<text  x="62.17" y="1711.5" >0x..</text>
+</g>
+<g >
+<title>/opt/miniconda3/lib/python3.6/inspect.py:&lt;module&gt;:1462 (1 samples, 1.39%)</title><rect x="895.0" y="1061" width="16.4" height="15.0" fill="rgb(94,240,94)" rx="2" ry="2" />
+<text  x="898.00" y="1071.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_load_unlocked:665 (1 samples, 1.39%)</title><rect x="911.4" y="1301" width="16.4" height="15.0" fill="rgb(221,221,66)" rx="2" ry="2" />
+<text  x="914.39" y="1311.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="927.8" y="1957" width="16.4" height="15.0" fill="rgb(209,109,0)" rx="2" ry="2" />
+<text  x="930.78" y="1967.5" ></text>
+</g>
+<g >
+<title>0xc:unknown frame:0 (1 samples, 1.39%)</title><rect x="944.2" y="1429" width="16.4" height="15.0" fill="rgb(212,112,0)" rx="2" ry="2" />
+<text  x="947.17" y="1439.5" ></text>
+</g>
+<g >
+<title>0xc:_IO_str_seekoff:0 (1 samples, 1.39%)</title><rect x="223.1" y="1525" width="16.3" height="15.0" fill="rgb(222,122,0)" rx="2" ry="2" />
+<text  x="226.06" y="1535.5" ></text>
+</g>
+<g >
+<title>0xc:_io_TextIOWrapper_read:0 (1 samples, 1.39%)</title><rect x="927.8" y="1733" width="16.4" height="15.0" fill="rgb(231,131,0)" rx="2" ry="2" />
+<text  x="930.78" y="1743.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="1909" width="16.3" height="15.0" fill="rgb(210,110,0)" rx="2" ry="2" />
+<text  x="963.56" y="1919.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load:971 (1 samples, 1.39%)</title><rect x="895.0" y="1893" width="16.4" height="15.0" fill="rgb(202,202,60)" rx="2" ry="2" />
+<text  x="898.00" y="1903.5" ></text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCodeEx:0 (1 samples, 1.39%)</title><rect x="960.6" y="181" width="16.3" height="15.0" fill="rgb(210,110,0)" rx="2" ry="2" />
+<text  x="963.56" y="191.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="911.4" y="1397" width="16.4" height="15.0" fill="rgb(221,121,0)" rx="2" ry="2" />
+<text  x="914.39" y="1407.5" ></text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2341" width="16.4" height="15.0" fill="rgb(239,139,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2351.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:module_from_spec:571 (1 samples, 1.39%)</title><rect x="944.2" y="1701" width="16.4" height="15.0" fill="rgb(192,192,56)" rx="2" ry="2" />
+<text  x="947.17" y="1711.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="944.2" y="1941" width="16.4" height="15.0" fill="rgb(220,120,0)" rx="2" ry="2" />
+<text  x="947.17" y="1951.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autograd8Variable4Impl17release_resourcesEv:0 (2 samples, 2.78%)</title><rect x="1058.9" y="2357" width="32.8" height="15.0" fill="rgb(250,150,0)" rx="2" ry="2" />
+<text  x="1061.89" y="2367.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="993.3" y="2149" width="16.4" height="15.0" fill="rgb(244,144,0)" rx="2" ry="2" />
+<text  x="996.33" y="2159.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="927.8" y="1765" width="16.4" height="15.0" fill="rgb(203,103,0)" rx="2" ry="2" />
+<text  x="930.78" y="1775.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="960.6" y="1445" width="16.3" height="15.0" fill="rgb(235,135,0)" rx="2" ry="2" />
+<text  x="963.56" y="1455.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_call_with_frames_removed:219 (1 samples, 1.39%)</title><rect x="960.6" y="1989" width="16.3" height="15.0" fill="rgb(224,224,68)" rx="2" ry="2" />
+<text  x="963.56" y="1999.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN3c1013intrusive_ptrINS_10TensorImplENS_19UndefinedTensorImplEE7retain_Ev:0 (1 samples, 1.39%)</title><rect x="1157.2" y="2293" width="16.4" height="15.0" fill="rgb(206,106,0)" rx="2" ry="2" />
+<text  x="1160.22" y="2303.5" ></text>
+</g>
+<g >
+<title>0xc:_PyImport_FindSharedFuncptr:0 (1 samples, 1.39%)</title><rect x="944.2" y="1493" width="16.4" height="15.0" fill="rgb(208,108,0)" rx="2" ry="2" />
+<text  x="947.17" y="1503.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="1009.7" y="2389" width="16.4" height="15.0" fill="rgb(222,122,0)" rx="2" ry="2" />
+<text  x="1012.72" y="2399.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="1189" width="16.3" height="15.0" fill="rgb(254,154,0)" rx="2" ry="2" />
+<text  x="963.56" y="1199.5" ></text>
+</g>
+<g >
+<title>0xc:_Py_CheckFunctionResult:0 (1 samples, 1.39%)</title><rect x="960.6" y="53" width="16.3" height="15.0" fill="rgb(208,108,0)" rx="2" ry="2" />
+<text  x="963.56" y="63.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="255.8" y="2021" width="16.4" height="15.0" fill="rgb(247,147,0)" rx="2" ry="2" />
+<text  x="258.83" y="2031.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_call_with_frames_removed:219 (1 samples, 1.39%)</title><rect x="960.6" y="1205" width="16.3" height="15.0" fill="rgb(228,228,69)" rx="2" ry="2" />
+<text  x="963.56" y="1215.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK3c1010TensorImpl23shallow_copy_and_detachEv:0 (2 samples, 2.78%)</title><rect x="124.7" y="1701" width="32.8" height="15.0" fill="rgb(202,102,0)" rx="2" ry="2" />
+<text  x="127.72" y="1711.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="911.4" y="1909" width="16.4" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="914.39" y="1919.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="944.2" y="1589" width="16.4" height="15.0" fill="rgb(218,118,0)" rx="2" ry="2" />
+<text  x="947.17" y="1599.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_CallMethodIdObjArgs:0 (1 samples, 1.39%)</title><rect x="911.4" y="1493" width="16.4" height="15.0" fill="rgb(214,114,0)" rx="2" ry="2" />
+<text  x="914.39" y="1503.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="485" width="16.3" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="963.56" y="495.5" ></text>
+</g>
+<g >
+<title>0xc:slot_tp_call:0 (15 samples, 20.83%)</title><rect x="26.4" y="2197" width="245.8" height="15.0" fill="rgb(204,104,0)" rx="2" ry="2" />
+<text  x="29.39" y="2207.5" >0xc:slot_tp_call:0</text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/__init__.py:&lt;module&gt;:46 (1 samples, 1.39%)</title><rect x="927.8" y="1989" width="16.4" height="15.0" fill="rgb(78,226,78)" rx="2" ry="2" />
+<text  x="930.78" y="1999.5" ></text>
+</g>
+<g >
+<title>0xc:unknown frame:0 (1 samples, 1.39%)</title><rect x="1173.6" y="2613" width="16.4" height="15.0" fill="rgb(198,98,0)" rx="2" ry="2" />
+<text  x="1176.61" y="2623.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_Call_Prepend:0 (17 samples, 23.61%)</title><rect x="10.0" y="2293" width="278.6" height="15.0" fill="rgb(222,122,0)" rx="2" ry="2" />
+<text  x="13.00" y="2303.5" >0xc:_PyObject_Call_Prepend:0</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="2181" width="16.3" height="15.0" fill="rgb(220,120,0)" rx="2" ry="2" />
+<text  x="963.56" y="2191.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="261" width="16.3" height="15.0" fill="rgb(226,126,0)" rx="2" ry="2" />
+<text  x="963.56" y="271.5" ></text>
+</g>
+<g >
+<title>0xc:PyDict_GetItem:0 (1 samples, 1.39%)</title><rect x="1042.5" y="2437" width="16.4" height="15.0" fill="rgb(236,136,0)" rx="2" ry="2" />
+<text  x="1045.50" y="2447.5" ></text>
+</g>
+<g >
+<title>0xc:builtin_exec:0 (1 samples, 1.39%)</title><rect x="960.6" y="1589" width="16.3" height="15.0" fill="rgb(253,153,0)" rx="2" ry="2" />
+<text  x="963.56" y="1599.5" ></text>
+</g>
+<g >
+<title>0xc:code_dealloc:0 (1 samples, 1.39%)</title><rect x="911.4" y="1253" width="16.4" height="15.0" fill="rgb(249,149,0)" rx="2" ry="2" />
+<text  x="914.39" y="1263.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2213" width="16.4" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2223.5" ></text>
+</g>
+<g >
+<title>all (72 samples, 100%)</title><rect x="10.0" y="2629" width="1180.0" height="15.0" fill="rgb(223,84,84)" rx="2" ry="2" />
+<text  x="13.00" y="2639.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_call_with_frames_removed:219 (1 samples, 1.39%)</title><rect x="960.6" y="149" width="16.3" height="15.0" fill="rgb(223,223,67)" rx="2" ry="2" />
+<text  x="963.56" y="159.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="821" width="16.4" height="15.0" fill="rgb(240,140,0)" rx="2" ry="2" />
+<text  x="898.00" y="831.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN2at6native12index_selectERKNS_6TensorElS3_:0 (1 samples, 1.39%)</title><rect x="255.8" y="1829" width="16.4" height="15.0" fill="rgb(231,131,0)" rx="2" ry="2" />
+<text  x="258.83" y="1839.5" ></text>
+</g>
+<g >
+<title>0xc:PyObject_CallMethodObjArgs:0 (1 samples, 1.39%)</title><rect x="927.8" y="1701" width="16.4" height="15.0" fill="rgb(193,93,0)" rx="2" ry="2" />
+<text  x="930.78" y="1711.5" ></text>
+</g>
+<g >
+<title>0xc:_ZL19THPVariable_deallocP11THPVariable:0 (2 samples, 2.78%)</title><rect x="1058.9" y="2405" width="32.8" height="15.0" fill="rgb(206,106,0)" rx="2" ry="2" />
+<text  x="1061.89" y="2415.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (15 samples, 20.83%)</title><rect x="26.4" y="2117" width="245.8" height="15.0" fill="rgb(223,123,0)" rx="2" ry="2" />
+<text  x="29.39" y="2127.5" >0xc:_PyEval_EvalCodeWithName:0</text>
+</g>
+<g >
+<title>0xc:PyObject_Call:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2389" width="16.4" height="15.0" fill="rgb(225,125,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2399.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="927.8" y="1621" width="16.4" height="15.0" fill="rgb(254,154,0)" rx="2" ry="2" />
+<text  x="930.78" y="1631.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="944.2" y="1733" width="16.4" height="15.0" fill="rgb(253,153,0)" rx="2" ry="2" />
+<text  x="947.17" y="1743.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="927.8" y="1941" width="16.4" height="15.0" fill="rgb(248,148,0)" rx="2" ry="2" />
+<text  x="930.78" y="1951.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK2at7CPUType5zero_ERNS_6TensorE:0 (2 samples, 2.78%)</title><rect x="862.2" y="2341" width="32.8" height="15.0" fill="rgb(228,128,0)" rx="2" ry="2" />
+<text  x="865.22" y="2351.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_dl_rtld_di_serinfo:0 (1 samples, 1.39%)</title><rect x="944.2" y="1397" width="16.4" height="15.0" fill="rgb(225,125,0)" rx="2" ry="2" />
+<text  x="947.17" y="1407.5" ></text>
+</g>
+<g >
+<title>0xc:gen_send_ex:0 (2 samples, 2.78%)</title><rect x="976.9" y="2325" width="32.8" height="15.0" fill="rgb(237,137,0)" rx="2" ry="2" />
+<text  x="979.94" y="2335.5" >0x..</text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="2197" width="16.3" height="15.0" fill="rgb(248,148,0)" rx="2" ry="2" />
+<text  x="963.56" y="2207.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="927.8" y="1973" width="16.4" height="15.0" fill="rgb(238,138,0)" rx="2" ry="2" />
+<text  x="930.78" y="1983.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (2 samples, 2.78%)</title><rect x="1108.1" y="2277" width="32.7" height="15.0" fill="rgb(234,134,0)" rx="2" ry="2" />
+<text  x="1111.06" y="2287.5" >0x..</text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="2133" width="16.3" height="15.0" fill="rgb(203,103,0)" rx="2" ry="2" />
+<text  x="963.56" y="2143.5" ></text>
+</g>
+<g >
+<title>0xc:PyArg_ParseTupleAndKeywords:0 (2 samples, 2.78%)</title><rect x="1108.1" y="2213" width="32.7" height="15.0" fill="rgb(228,128,0)" rx="2" ry="2" />
+<text  x="1111.06" y="2223.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_ZN3c1013intrusive_ptrINS_10TensorImplENS_19UndefinedTensorImplEE6reset_Ev:0 (2 samples, 2.78%)</title><rect x="1058.9" y="2373" width="32.8" height="15.0" fill="rgb(221,121,0)" rx="2" ry="2" />
+<text  x="1061.89" y="2383.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2341" width="16.4" height="15.0" fill="rgb(225,125,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2351.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="895.0" y="1941" width="16.4" height="15.0" fill="rgb(250,150,0)" rx="2" ry="2" />
+<text  x="898.00" y="1951.5" ></text>
+</g>
+<g >
+<title>0xc:_Znwm:0 (1 samples, 1.39%)</title><rect x="1058.9" y="2245" width="16.4" height="15.0" fill="rgb(235,135,0)" rx="2" ry="2" />
+<text  x="1061.89" y="2255.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="1009.7" y="2357" width="16.4" height="15.0" fill="rgb(241,141,0)" rx="2" ry="2" />
+<text  x="1012.72" y="2367.5" ></text>
+</g>
+<g >
+<title>0xc:call_attribute:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2165" width="16.4" height="15.0" fill="rgb(197,97,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2175.5" ></text>
+</g>
+<g >
+<title>0xc:PyErr_FormatV:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2133" width="16.4" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2143.5" ></text>
+</g>
+<g >
+<title>0xc:PyImport_ImportModuleLevelObject:0 (1 samples, 1.39%)</title><rect x="911.4" y="1973" width="16.4" height="15.0" fill="rgb(243,143,0)" rx="2" ry="2" />
+<text  x="914.39" y="1983.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_call_with_frames_removed:219 (1 samples, 1.39%)</title><rect x="944.2" y="1557" width="16.4" height="15.0" fill="rgb(198,198,58)" rx="2" ry="2" />
+<text  x="947.17" y="1567.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_load_unlocked:665 (1 samples, 1.39%)</title><rect x="895.0" y="1301" width="16.4" height="15.0" fill="rgb(205,205,60)" rx="2" ry="2" />
+<text  x="898.00" y="1311.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (35 samples, 48.61%)</title><rect x="288.6" y="2373" width="573.6" height="15.0" fill="rgb(250,150,0)" rx="2" ry="2" />
+<text  x="291.61" y="2383.5" >0xc:fast_function:0</text>
+</g>
+<g >
+<title>0xc:_PyCFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="895.0" y="789" width="16.4" height="15.0" fill="rgb(204,104,0)" rx="2" ry="2" />
+<text  x="898.00" y="799.5" ></text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/optim/sgd.py:step:106 (1 samples, 1.39%)</title><rect x="1140.8" y="2373" width="16.4" height="15.0" fill="rgb(53,202,53)" rx="2" ry="2" />
+<text  x="1143.83" y="2383.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_Call_Prepend:0 (15 samples, 20.83%)</title><rect x="26.4" y="2165" width="245.8" height="15.0" fill="rgb(197,97,0)" rx="2" ry="2" />
+<text  x="29.39" y="2175.5" >0xc:_PyObject_Call_Prepend:0</text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (17 samples, 23.61%)</title><rect x="10.0" y="2373" width="278.6" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="13.00" y="2383.5" >0xc:_PyObject_FastCallDict:0</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (71 samples, 98.61%)</title><rect x="10.0" y="2469" width="1163.6" height="15.0" fill="rgb(207,107,0)" rx="2" ry="2" />
+<text  x="13.00" y="2479.5" >0xc:_PyEval_EvalFrameDefault:0</text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (5 samples, 6.94%)</title><rect x="895.0" y="2389" width="81.9" height="15.0" fill="rgb(217,117,0)" rx="2" ry="2" />
+<text  x="898.00" y="2399.5" >0xc:_PyFu..</text>
+</g>
+<g >
+<title>0xc:PyImport_ImportModuleLevelObject:0 (5 samples, 6.94%)</title><rect x="895.0" y="2437" width="81.9" height="15.0" fill="rgb(242,142,0)" rx="2" ry="2" />
+<text  x="898.00" y="2447.5" >0xc:PyImp..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (5 samples, 6.94%)</title><rect x="895.0" y="2373" width="81.9" height="15.0" fill="rgb(230,130,0)" rx="2" ry="2" />
+<text  x="898.00" y="2383.5" >0xc:_PyEv..</text>
+</g>
+<g >
+<title>0xc:_PyCFunction_FastCallKeywords:0 (1 samples, 1.39%)</title><rect x="895.0" y="805" width="16.4" height="15.0" fill="rgb(209,109,0)" rx="2" ry="2" />
+<text  x="898.00" y="815.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="911.4" y="1349" width="16.4" height="15.0" fill="rgb(226,126,0)" rx="2" ry="2" />
+<text  x="914.39" y="1359.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1413" width="16.4" height="15.0" fill="rgb(241,141,0)" rx="2" ry="2" />
+<text  x="898.00" y="1423.5" ></text>
+</g>
+<g >
+<title>0xc:_PyLong_New:0 (1 samples, 1.39%)</title><rect x="993.3" y="2053" width="16.4" height="15.0" fill="rgb(196,96,0)" rx="2" ry="2" />
+<text  x="996.33" y="2063.5" ></text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCodeEx:0 (1 samples, 1.39%)</title><rect x="895.0" y="1557" width="16.4" height="15.0" fill="rgb(248,148,0)" rx="2" ry="2" />
+<text  x="898.00" y="1567.5" ></text>
+</g>
+<g >
+<title>0xc:PyObject_Malloc:0 (1 samples, 1.39%)</title><rect x="993.3" y="2037" width="16.4" height="15.0" fill="rgb(243,143,0)" rx="2" ry="2" />
+<text  x="996.33" y="2047.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2421" width="16.4" height="15.0" fill="rgb(193,93,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2431.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_GenericGetAttrWithDict:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2165" width="16.4" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2175.5" ></text>
+</g>
+<g >
+<title>0xc:_PyList_Extend:0 (1 samples, 1.39%)</title><rect x="895.0" y="885" width="16.4" height="15.0" fill="rgb(249,149,0)" rx="2" ry="2" />
+<text  x="898.00" y="895.5" ></text>
+</g>
+<g >
+<title>0xc:THFloatTensor_fill:0 (1 samples, 1.39%)</title><rect x="878.6" y="2293" width="16.4" height="15.0" fill="rgb(196,96,0)" rx="2" ry="2" />
+<text  x="881.61" y="2303.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autogradL21THPVariable_embeddingEP7_objectS2_S2_:0 (1 samples, 1.39%)</title><rect x="255.8" y="1909" width="16.4" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="258.83" y="1919.5" ></text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/multiprocessing/__init__.py:&lt;module&gt;:18 (1 samples, 1.39%)</title><rect x="911.4" y="1525" width="16.4" height="15.0" fill="rgb(70,218,70)" rx="2" ry="2" />
+<text  x="914.39" y="1535.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_GC_Malloc:0 (1 samples, 1.39%)</title><rect x="927.8" y="1573" width="16.4" height="15.0" fill="rgb(245,145,0)" rx="2" ry="2" />
+<text  x="930.78" y="1583.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autograd8Variable4ImplC1EN2at6TensorESt10unique_ptrINS1_12AutogradMetaESt14default_deleteIS6_EEbNS0_4EdgeE:0 (2 samples, 2.78%)</title><rect x="26.4" y="1733" width="32.8" height="15.0" fill="rgb(213,113,0)" rx="2" ry="2" />
+<text  x="29.39" y="1743.5" >0x..</text>
+</g>
+<g >
+<title>0xc:PyDict_GetItem:0 (2 samples, 2.78%)</title><rect x="1108.1" y="2165" width="32.7" height="15.0" fill="rgb(240,140,0)" rx="2" ry="2" />
+<text  x="1111.06" y="2175.5" >0x..</text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCodeEx:0 (1 samples, 1.39%)</title><rect x="895.0" y="1093" width="16.4" height="15.0" fill="rgb(212,112,0)" rx="2" ry="2" />
+<text  x="898.00" y="1103.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="911.4" y="1653" width="16.4" height="15.0" fill="rgb(241,141,0)" rx="2" ry="2" />
+<text  x="914.39" y="1663.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autograd13make_variableEN2at6TensorEbb:0 (1 samples, 1.39%)</title><rect x="1140.8" y="2309" width="16.4" height="15.0" fill="rgb(225,125,0)" rx="2" ry="2" />
+<text  x="1143.83" y="2319.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="960.6" y="1653" width="16.3" height="15.0" fill="rgb(245,145,0)" rx="2" ry="2" />
+<text  x="963.56" y="1663.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (17 samples, 23.61%)</title><rect x="10.0" y="2245" width="278.6" height="15.0" fill="rgb(210,110,0)" rx="2" ry="2" />
+<text  x="13.00" y="2255.5" >0xc:_PyEval_EvalFrameDefault:0</text>
+</g>
+<g >
+<title>0xc:call_function:0 (2 samples, 2.78%)</title><rect x="976.9" y="2437" width="32.8" height="15.0" fill="rgb(241,141,0)" rx="2" ry="2" />
+<text  x="979.94" y="2447.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyObject_CallMethodIdObjArgs:0 (1 samples, 1.39%)</title><rect x="895.0" y="1957" width="16.4" height="15.0" fill="rgb(249,149,0)" rx="2" ry="2" />
+<text  x="898.00" y="1967.5" ></text>
+</g>
+<g >
+<title>test2.py:&lt;module&gt;:77 (2 samples, 2.78%)</title><rect x="976.9" y="2453" width="32.8" height="15.0" fill="rgb(88,235,88)" rx="2" ry="2" />
+<text  x="979.94" y="2463.5" >te..</text>
+</g>
+<g >
+<title>0xc:_ZNK2at7CPUType10as_stridedERKNS_6TensorEN3c108ArrayRefIlEES6_NS4_8optionalIlEE:0 (2 samples, 2.78%)</title><rect x="59.2" y="1685" width="32.7" height="15.0" fill="rgb(246,146,0)" rx="2" ry="2" />
+<text  x="62.17" y="1695.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_start:0 (71 samples, 98.61%)</title><rect x="10.0" y="2613" width="1163.6" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="13.00" y="2623.5" >0xc:_start:0</text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="911.4" y="1413" width="16.4" height="15.0" fill="rgb(225,125,0)" rx="2" ry="2" />
+<text  x="914.39" y="1423.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="2245" width="16.3" height="15.0" fill="rgb(198,98,0)" rx="2" ry="2" />
+<text  x="963.56" y="2255.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="927.8" y="1845" width="16.4" height="15.0" fill="rgb(205,105,0)" rx="2" ry="2" />
+<text  x="930.78" y="1855.5" ></text>
+</g>
+<g >
+<title>0xc:THFloatTensor_indexSelect:0 (1 samples, 1.39%)</title><rect x="255.8" y="1797" width="16.4" height="15.0" fill="rgb(192,92,0)" rx="2" ry="2" />
+<text  x="258.83" y="1807.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (17 samples, 23.61%)</title><rect x="10.0" y="2437" width="278.6" height="15.0" fill="rgb(216,116,0)" rx="2" ry="2" />
+<text  x="13.00" y="2447.5" >0xc:_PyObject_FastCallDict:0</text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (15 samples, 20.83%)</title><rect x="26.4" y="2213" width="245.8" height="15.0" fill="rgb(220,120,0)" rx="2" ry="2" />
+<text  x="29.39" y="2223.5" >0xc:_PyObject_FastCallDict:0</text>
+</g>
+<g >
+<title>0xc:call_function:0 (4 samples, 5.56%)</title><rect x="895.0" y="2213" width="65.6" height="15.0" fill="rgb(247,147,0)" rx="2" ry="2" />
+<text  x="898.00" y="2223.5" >0xc:cal..</text>
+</g>
+<g >
+<title>0xc:_ZN3c1010TensorImplC1ENS_12TensorTypeIdERKN6caffe28TypeMetaENS_8optionalINS_6DeviceEEE:0 (2 samples, 2.78%)</title><rect x="26.4" y="1717" width="32.8" height="15.0" fill="rgb(239,139,0)" rx="2" ry="2" />
+<text  x="29.39" y="1727.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="533" width="16.3" height="15.0" fill="rgb(240,140,0)" rx="2" ry="2" />
+<text  x="963.56" y="543.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_Call_Prepend:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2373" width="16.4" height="15.0" fill="rgb(240,140,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2383.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN2at6native7sigmoidERKNS_6TensorE:0 (1 samples, 1.39%)</title><rect x="239.4" y="1717" width="16.4" height="15.0" fill="rgb(245,145,0)" rx="2" ry="2" />
+<text  x="242.44" y="1727.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1349" width="16.4" height="15.0" fill="rgb(241,141,0)" rx="2" ry="2" />
+<text  x="898.00" y="1359.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="341" width="16.3" height="15.0" fill="rgb(217,117,0)" rx="2" ry="2" />
+<text  x="963.56" y="351.5" ></text>
+</g>
+<g >
+<title>0xc:_ZL17THPVariable_clearP11THPVariable:0 (2 samples, 2.78%)</title><rect x="1058.9" y="2389" width="32.8" height="15.0" fill="rgb(222,122,0)" rx="2" ry="2" />
+<text  x="1061.89" y="2399.5" >0x..</text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="2261" width="16.3" height="15.0" fill="rgb(227,127,0)" rx="2" ry="2" />
+<text  x="963.56" y="2271.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="405" width="16.3" height="15.0" fill="rgb(242,142,0)" rx="2" ry="2" />
+<text  x="963.56" y="415.5" ></text>
+</g>
+<g >
+<title>/opt/miniconda3/lib/python3.6/platform.py:system:1035 (1 samples, 1.39%)</title><rect x="927.8" y="1925" width="16.4" height="15.0" fill="rgb(73,221,73)" rx="2" ry="2" />
+<text  x="930.78" y="1935.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN2at6native12_GLOBAL__N_1L26copy_kernel_same_type_implERNS_6TensorERKS2_:0 (1 samples, 1.39%)</title><rect x="223.1" y="1589" width="16.3" height="15.0" fill="rgb(224,124,0)" rx="2" ry="2" />
+<text  x="226.06" y="1599.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_load_unlocked:665 (1 samples, 1.39%)</title><rect x="960.6" y="1701" width="16.3" height="15.0" fill="rgb(191,191,55)" rx="2" ry="2" />
+<text  x="963.56" y="1711.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="960.6" y="277" width="16.3" height="15.0" fill="rgb(227,127,0)" rx="2" ry="2" />
+<text  x="963.56" y="287.5" ></text>
+</g>
+<g >
+<title>0xc:_Znwm:0 (2 samples, 2.78%)</title><rect x="124.7" y="1653" width="32.8" height="15.0" fill="rgb(215,115,0)" rx="2" ry="2" />
+<text  x="127.72" y="1663.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="960.6" y="965" width="16.3" height="15.0" fill="rgb(248,148,0)" rx="2" ry="2" />
+<text  x="963.56" y="975.5" ></text>
+</g>
+<g >
+<title>0xc:builtin_exec:0 (1 samples, 1.39%)</title><rect x="960.6" y="2053" width="16.3" height="15.0" fill="rgb(227,127,0)" rx="2" ry="2" />
+<text  x="963.56" y="2063.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_CallMethodIdObjArgs:0 (1 samples, 1.39%)</title><rect x="960.6" y="1493" width="16.3" height="15.0" fill="rgb(216,116,0)" rx="2" ry="2" />
+<text  x="963.56" y="1503.5" ></text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/numpy/__init__.py:&lt;module&gt;:142 (1 samples, 1.39%)</title><rect x="960.6" y="1413" width="16.3" height="15.0" fill="rgb(80,227,80)" rx="2" ry="2" />
+<text  x="963.56" y="1423.5" ></text>
+</g>
+<g >
+<title>0xc:slot_tp_call:0 (17 samples, 23.61%)</title><rect x="10.0" y="2421" width="278.6" height="15.0" fill="rgb(208,108,0)" rx="2" ry="2" />
+<text  x="13.00" y="2431.5" >0xc:slot_tp_call:0</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="1221" width="16.3" height="15.0" fill="rgb(199,99,0)" rx="2" ry="2" />
+<text  x="963.56" y="1231.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_load_unlocked:665 (1 samples, 1.39%)</title><rect x="960.6" y="2165" width="16.3" height="15.0" fill="rgb(226,226,68)" rx="2" ry="2" />
+<text  x="963.56" y="2175.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1877" width="16.4" height="15.0" fill="rgb(244,144,0)" rx="2" ry="2" />
+<text  x="898.00" y="1887.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="1009.7" y="2437" width="16.4" height="15.0" fill="rgb(239,139,0)" rx="2" ry="2" />
+<text  x="1012.72" y="2447.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="927.8" y="1797" width="16.4" height="15.0" fill="rgb(216,116,0)" rx="2" ry="2" />
+<text  x="930.78" y="1807.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (35 samples, 48.61%)</title><rect x="288.6" y="2357" width="573.6" height="15.0" fill="rgb(218,118,0)" rx="2" ry="2" />
+<text  x="291.61" y="2367.5" >0xc:_PyEval_EvalCodeWithName:0</text>
+</g>
+<g >
+<title>0xc:_ZN2at6native6linearERKNS_6TensorES3_S3_:0 (2 samples, 2.78%)</title><rect x="206.7" y="1717" width="32.7" height="15.0" fill="rgb(247,147,0)" rx="2" ry="2" />
+<text  x="209.67" y="1727.5" >0x..</text>
+</g>
+<g >
+<title>0xc:call_function:0 (54 samples, 75.00%)</title><rect x="10.0" y="2453" width="885.0" height="15.0" fill="rgb(243,143,0)" rx="2" ry="2" />
+<text  x="13.00" y="2463.5" >0xc:call_function:0</text>
+</g>
+<g >
+<title>0xc:_dl_rtld_di_serinfo:0 (1 samples, 1.39%)</title><rect x="944.2" y="1445" width="16.4" height="15.0" fill="rgb(205,105,0)" rx="2" ry="2" />
+<text  x="947.17" y="1455.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_GenericGetAttrWithDict:0 (1 samples, 1.39%)</title><rect x="1140.8" y="2357" width="16.4" height="15.0" fill="rgb(200,100,0)" rx="2" ry="2" />
+<text  x="1143.83" y="2367.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load_unlocked:955 (1 samples, 1.39%)</title><rect x="911.4" y="1365" width="16.4" height="15.0" fill="rgb(188,188,55)" rx="2" ry="2" />
+<text  x="914.39" y="1375.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autograd6Engine7executeERKSt6vectorINS0_4EdgeESaIS3_EERKS2_INS0_8VariableESaIS8_EEbbS7_:0 (35 samples, 48.61%)</title><rect x="288.6" y="2245" width="573.6" height="15.0" fill="rgb(207,107,0)" rx="2" ry="2" />
+<text  x="291.61" y="2255.5" >0xc:_ZN5torch8autograd6Engine7executeERKSt6vectorINS0_4EdgeESaIS3_EERKS2_INS0_8..</text>
+</g>
+<g >
+<title>/opt/miniconda3/lib/python3.6/platform.py:uname:1001 (1 samples, 1.39%)</title><rect x="927.8" y="1861" width="16.4" height="15.0" fill="rgb(103,248,103)" rx="2" ry="2" />
+<text  x="930.78" y="1871.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="1861" width="16.3" height="15.0" fill="rgb(252,152,0)" rx="2" ry="2" />
+<text  x="963.56" y="1871.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK2at6Tensor3addERKS0_N3c106ScalarE:0 (6 samples, 8.33%)</title><rect x="91.9" y="1749" width="98.4" height="15.0" fill="rgb(190,90,0)" rx="2" ry="2" />
+<text  x="94.94" y="1759.5" >0xc:_ZNK2at..</text>
+</g>
+<g >
+<title>0xc:builtin_exec:0 (1 samples, 1.39%)</title><rect x="895.0" y="1125" width="16.4" height="15.0" fill="rgb(220,120,0)" rx="2" ry="2" />
+<text  x="898.00" y="1135.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_CallMethodIdObjArgs:0 (1 samples, 1.39%)</title><rect x="944.2" y="1957" width="16.4" height="15.0" fill="rgb(207,107,0)" rx="2" ry="2" />
+<text  x="947.17" y="1967.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="1397" width="16.3" height="15.0" fill="rgb(222,122,0)" rx="2" ry="2" />
+<text  x="963.56" y="1407.5" ></text>
+</g>
+<g >
+<title>0xc:PyErr_Format:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2149" width="16.4" height="15.0" fill="rgb(247,147,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2159.5" ></text>
+</g>
+<g >
+<title>0xc:PyCFunction_Call:0 (1 samples, 1.39%)</title><rect x="960.6" y="917" width="16.3" height="15.0" fill="rgb(216,116,0)" rx="2" ry="2" />
+<text  x="963.56" y="927.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="895.0" y="1189" width="16.4" height="15.0" fill="rgb(204,104,0)" rx="2" ry="2" />
+<text  x="898.00" y="1199.5" ></text>
+</g>
+<g >
+<title>0xc:builtin_exec:0 (1 samples, 1.39%)</title><rect x="960.6" y="213" width="16.3" height="15.0" fill="rgb(254,154,0)" rx="2" ry="2" />
+<text  x="963.56" y="223.5" ></text>
+</g>
+<g >
+<title>/opt/miniconda3/lib/python3.6/collections/__init__.py:&lt;genexpr&gt;:423 (1 samples, 1.39%)</title><rect x="895.0" y="837" width="16.4" height="15.0" fill="rgb(57,206,57)" rx="2" ry="2" />
+<text  x="898.00" y="847.5" ></text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/serialization.py:&lt;module&gt;:2 (1 samples, 1.39%)</title><rect x="895.0" y="1525" width="16.4" height="15.0" fill="rgb(64,213,64)" rx="2" ry="2" />
+<text  x="898.00" y="1535.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="911.4" y="1685" width="16.4" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="914.39" y="1695.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1333" width="16.4" height="15.0" fill="rgb(245,145,0)" rx="2" ry="2" />
+<text  x="898.00" y="1343.5" ></text>
+</g>
+<g >
+<title>0xc:slot_tp_getattr_hook:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2181" width="16.4" height="15.0" fill="rgb(199,99,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2191.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="1669" width="16.3" height="15.0" fill="rgb(248,148,0)" rx="2" ry="2" />
+<text  x="963.56" y="1679.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (14 samples, 19.44%)</title><rect x="26.4" y="1989" width="229.4" height="15.0" fill="rgb(195,95,0)" rx="2" ry="2" />
+<text  x="29.39" y="1999.5" >0xc:call_function:0</text>
+</g>
+<g >
+<title>0xc:_PyObject_Call_Prepend:0 (17 samples, 23.61%)</title><rect x="10.0" y="2389" width="278.6" height="15.0" fill="rgb(206,106,0)" rx="2" ry="2" />
+<text  x="13.00" y="2399.5" >0xc:_PyObject_Call_Prepend:0</text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/numpy/core/_add_newdocs.py:&lt;module&gt;:6871 (1 samples, 1.39%)</title><rect x="960.6" y="69" width="16.3" height="15.0" fill="rgb(95,241,95)" rx="2" ry="2" />
+<text  x="963.56" y="79.5" ></text>
+</g>
+<g >
+<title>0xc:PyCFunction_Call:0 (1 samples, 1.39%)</title><rect x="960.6" y="1317" width="16.3" height="15.0" fill="rgb(227,127,0)" rx="2" ry="2" />
+<text  x="963.56" y="1327.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (2 samples, 2.78%)</title><rect x="1108.1" y="2325" width="32.7" height="15.0" fill="rgb(211,111,0)" rx="2" ry="2" />
+<text  x="1111.06" y="2335.5" >0x..</text>
+</g>
+<g >
+<title>0xc:PyObject_Malloc:0 (1 samples, 1.39%)</title><rect x="927.8" y="1557" width="16.4" height="15.0" fill="rgb(236,136,0)" rx="2" ry="2" />
+<text  x="930.78" y="1567.5" ></text>
+</g>
+<g >
+<title>0xc:dlerror:0 (1 samples, 1.39%)</title><rect x="944.2" y="1461" width="16.4" height="15.0" fill="rgb(202,102,0)" rx="2" ry="2" />
+<text  x="947.17" y="1471.5" ></text>
+</g>
+<g >
+<title>0xc:_imp_create_dynamic:0 (1 samples, 1.39%)</title><rect x="944.2" y="1525" width="16.4" height="15.0" fill="rgb(205,105,0)" rx="2" ry="2" />
+<text  x="947.17" y="1535.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK2at11TypeDefault8nll_lossERKNS_6TensorES3_S3_ll:0 (1 samples, 1.39%)</title><rect x="272.2" y="2101" width="16.4" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="275.22" y="2111.5" ></text>
+</g>
+<g >
+<title>0xc:_dl_find_dso_for_object:0 (1 samples, 1.39%)</title><rect x="944.2" y="1381" width="16.4" height="15.0" fill="rgb(253,153,0)" rx="2" ry="2" />
+<text  x="947.17" y="1391.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="911.4" y="1285" width="16.4" height="15.0" fill="rgb(222,122,0)" rx="2" ry="2" />
+<text  x="914.39" y="1295.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (2 samples, 2.78%)</title><rect x="976.9" y="2309" width="32.8" height="15.0" fill="rgb(228,128,0)" rx="2" ry="2" />
+<text  x="979.94" y="2319.5" >0x..</text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_call_with_frames_removed:219 (1 samples, 1.39%)</title><rect x="960.6" y="1525" width="16.3" height="15.0" fill="rgb(207,207,61)" rx="2" ry="2" />
+<text  x="963.56" y="1535.5" ></text>
+</g>
+<g >
+<title>0xc:_ZL20THPVariable_get_dataP11THPVariable:0 (1 samples, 1.39%)</title><rect x="1157.2" y="2325" width="16.4" height="15.0" fill="rgb(209,109,0)" rx="2" ry="2" />
+<text  x="1160.22" y="2335.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="1717" width="16.3" height="15.0" fill="rgb(251,151,0)" rx="2" ry="2" />
+<text  x="963.56" y="1727.5" ></text>
+</g>
+<g >
+<title>0xc:do_string_format:0 (1 samples, 1.39%)</title><rect x="895.0" y="773" width="16.4" height="15.0" fill="rgb(244,144,0)" rx="2" ry="2" />
+<text  x="898.00" y="783.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="2149" width="16.3" height="15.0" fill="rgb(192,92,0)" rx="2" ry="2" />
+<text  x="963.56" y="2159.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (4 samples, 5.56%)</title><rect x="895.0" y="2197" width="65.6" height="15.0" fill="rgb(212,112,0)" rx="2" ry="2" />
+<text  x="898.00" y="2207.5" >0xc:fas..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="911.4" y="1717" width="16.4" height="15.0" fill="rgb(241,141,0)" rx="2" ry="2" />
+<text  x="914.39" y="1727.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_Call_Prepend:0 (1 samples, 1.39%)</title><rect x="993.3" y="2181" width="16.4" height="15.0" fill="rgb(233,133,0)" rx="2" ry="2" />
+<text  x="996.33" y="2191.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load_unlocked:955 (1 samples, 1.39%)</title><rect x="895.0" y="1829" width="16.4" height="15.0" fill="rgb(177,177,50)" rx="2" ry="2" />
+<text  x="898.00" y="1839.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="911.4" y="1269" width="16.4" height="15.0" fill="rgb(205,105,0)" rx="2" ry="2" />
+<text  x="914.39" y="1279.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (4 samples, 5.56%)</title><rect x="895.0" y="2149" width="65.6" height="15.0" fill="rgb(208,108,0)" rx="2" ry="2" />
+<text  x="898.00" y="2159.5" >0xc:cal..</text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="960.6" y="565" width="16.3" height="15.0" fill="rgb(197,97,0)" rx="2" ry="2" />
+<text  x="963.56" y="575.5" ></text>
+</g>
+<g >
+<title>0xc:PyRun_SimpleFileExFlags:0 (71 samples, 98.61%)</title><rect x="10.0" y="2549" width="1163.6" height="15.0" fill="rgb(192,92,0)" rx="2" ry="2" />
+<text  x="13.00" y="2559.5" >0xc:PyRun_SimpleFileExFlags:0</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="895.0" y="1173" width="16.4" height="15.0" fill="rgb(249,149,0)" rx="2" ry="2" />
+<text  x="898.00" y="1183.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="1685" width="16.3" height="15.0" fill="rgb(222,122,0)" rx="2" ry="2" />
+<text  x="963.56" y="1695.5" ></text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/nn/modules/module.py:parameters:814 (2 samples, 2.78%)</title><rect x="976.9" y="2341" width="32.8" height="15.0" fill="rgb(99,245,99)" rx="2" ry="2" />
+<text  x="979.94" y="2351.5" >/h..</text>
+</g>
+<g >
+<title>0xc:call_function:0 (35 samples, 48.61%)</title><rect x="288.6" y="2325" width="573.6" height="15.0" fill="rgb(249,149,0)" rx="2" ry="2" />
+<text  x="291.61" y="2335.5" >0xc:call_function:0</text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="960.6" y="1477" width="16.3" height="15.0" fill="rgb(193,93,0)" rx="2" ry="2" />
+<text  x="963.56" y="1487.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_call_with_frames_removed:219 (1 samples, 1.39%)</title><rect x="895.0" y="1621" width="16.4" height="15.0" fill="rgb(207,207,61)" rx="2" ry="2" />
+<text  x="898.00" y="1631.5" ></text>
+</g>
+<g >
+<title>0xc:PyObject_Call:0 (17 samples, 23.61%)</title><rect x="10.0" y="2309" width="278.6" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="13.00" y="2319.5" >0xc:PyObject_Call:0</text>
+</g>
+<g >
+<title>0xc:_ZNK2at7CPUType9_th_zero_ERNS_6TensorE:0 (1 samples, 1.39%)</title><rect x="878.6" y="2309" width="16.4" height="15.0" fill="rgb(228,128,0)" rx="2" ry="2" />
+<text  x="881.61" y="2319.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (2 samples, 2.78%)</title><rect x="862.2" y="2405" width="32.8" height="15.0" fill="rgb(193,93,0)" rx="2" ry="2" />
+<text  x="865.22" y="2415.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyObject_Call_Prepend:0 (15 samples, 20.83%)</title><rect x="26.4" y="2069" width="245.8" height="15.0" fill="rgb(204,104,0)" rx="2" ry="2" />
+<text  x="29.39" y="2079.5" >0xc:_PyObject_Call_Prepend:0</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (17 samples, 23.61%)</title><rect x="10.0" y="2325" width="278.6" height="15.0" fill="rgb(193,93,0)" rx="2" ry="2" />
+<text  x="13.00" y="2335.5" >0xc:_PyEval_EvalFrameDefault:0</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="895.0" y="1781" width="16.4" height="15.0" fill="rgb(229,129,0)" rx="2" ry="2" />
+<text  x="898.00" y="1791.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2133" width="16.4" height="15.0" fill="rgb(242,142,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2143.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_CallMethodIdObjArgs:0 (1 samples, 1.39%)</title><rect x="960.6" y="1957" width="16.3" height="15.0" fill="rgb(245,145,0)" rx="2" ry="2" />
+<text  x="963.56" y="1967.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK5torch8autograd12VariableType6linearERKN2at6TensorES5_S5_:0 (2 samples, 2.78%)</title><rect x="206.7" y="1749" width="32.7" height="15.0" fill="rgb(215,115,0)" rx="2" ry="2" />
+<text  x="209.67" y="1759.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (14 samples, 19.44%)</title><rect x="26.4" y="1957" width="229.4" height="15.0" fill="rgb(203,103,0)" rx="2" ry="2" />
+<text  x="29.39" y="1967.5" >0xc:_PyEval_EvalCodeWithName:0</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (14 samples, 19.44%)</title><rect x="26.4" y="1893" width="229.4" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="29.39" y="1903.5" >0xc:_PyEval_EvalFrameDefault:0</text>
+</g>
+<g >
+<title>0xc:_PyCFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="895.0" y="949" width="16.4" height="15.0" fill="rgb(199,99,0)" rx="2" ry="2" />
+<text  x="898.00" y="959.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_call_with_frames_removed:219 (4 samples, 5.56%)</title><rect x="895.0" y="2085" width="65.6" height="15.0" fill="rgb(179,179,51)" rx="2" ry="2" />
+<text  x="898.00" y="2095.5" >&lt;frozen..</text>
+</g>
+<g >
+<title>0xc:_ZN2at14TensorIterator8for_eachERKSt8functionIFviPPcPKllEE:0 (1 samples, 1.39%)</title><rect x="223.1" y="1573" width="16.3" height="15.0" fill="rgb(236,136,0)" rx="2" ry="2" />
+<text  x="226.06" y="1583.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_load_unlocked:665 (1 samples, 1.39%)</title><rect x="960.6" y="325" width="16.3" height="15.0" fill="rgb(213,213,63)" rx="2" ry="2" />
+<text  x="963.56" y="335.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="927.8" y="1685" width="16.4" height="15.0" fill="rgb(215,115,0)" rx="2" ry="2" />
+<text  x="930.78" y="1695.5" ></text>
+</g>
+<g >
+<title>0xc:lookdict_unicode_nodummy:0 (2 samples, 2.78%)</title><rect x="1108.1" y="2149" width="32.7" height="15.0" fill="rgb(211,111,0)" rx="2" ry="2" />
+<text  x="1111.06" y="2159.5" >0x..</text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="1125" width="16.3" height="15.0" fill="rgb(198,98,0)" rx="2" ry="2" />
+<text  x="963.56" y="1135.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap_external&gt;:exec_module:678 (1 samples, 1.39%)</title><rect x="960.6" y="245" width="16.3" height="15.0" fill="rgb(218,218,65)" rx="2" ry="2" />
+<text  x="963.56" y="255.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autograd14deleteFunctionEPNS0_8FunctionE:0 (1 samples, 1.39%)</title><rect x="1075.3" y="2261" width="16.4" height="15.0" fill="rgb(254,154,0)" rx="2" ry="2" />
+<text  x="1078.28" y="2271.5" ></text>
+</g>
+<g >
+<title>0xc:_PyCFunction_FastCallKeywords:0 (1 samples, 1.39%)</title><rect x="1009.7" y="2341" width="16.4" height="15.0" fill="rgb(198,98,0)" rx="2" ry="2" />
+<text  x="1012.72" y="2351.5" ></text>
+</g>
+<g >
+<title>0xc:_PyCFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="1009.7" y="2325" width="16.4" height="15.0" fill="rgb(221,121,0)" rx="2" ry="2" />
+<text  x="1012.72" y="2335.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK2at7CPUType16_th_index_selectERKNS_6TensorElS3_:0 (1 samples, 1.39%)</title><rect x="255.8" y="1813" width="16.4" height="15.0" fill="rgb(236,136,0)" rx="2" ry="2" />
+<text  x="258.83" y="1823.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_call_with_frames_removed:219 (1 samples, 1.39%)</title><rect x="960.6" y="837" width="16.3" height="15.0" fill="rgb(186,186,54)" rx="2" ry="2" />
+<text  x="963.56" y="847.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="437" width="16.3" height="15.0" fill="rgb(207,107,0)" rx="2" ry="2" />
+<text  x="963.56" y="447.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (2 samples, 2.78%)</title><rect x="1108.1" y="2389" width="32.7" height="15.0" fill="rgb(249,149,0)" rx="2" ry="2" />
+<text  x="1111.06" y="2399.5" >0x..</text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_load_unlocked:665 (1 samples, 1.39%)</title><rect x="895.0" y="1765" width="16.4" height="15.0" fill="rgb(221,221,67)" rx="2" ry="2" />
+<text  x="898.00" y="1775.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load:971 (4 samples, 5.56%)</title><rect x="895.0" y="2357" width="65.6" height="15.0" fill="rgb(185,185,53)" rx="2" ry="2" />
+<text  x="898.00" y="2367.5" >&lt;frozen..</text>
+</g>
+<g >
+<title>0xc:_PyCFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="10.0" y="2213" width="16.4" height="15.0" fill="rgb(222,122,0)" rx="2" ry="2" />
+<text  x="13.00" y="2223.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_load_unlocked:658 (1 samples, 1.39%)</title><rect x="944.2" y="1765" width="16.4" height="15.0" fill="rgb(189,189,55)" rx="2" ry="2" />
+<text  x="947.17" y="1775.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="944.2" y="1877" width="16.4" height="15.0" fill="rgb(230,130,0)" rx="2" ry="2" />
+<text  x="947.17" y="1887.5" ></text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCodeEx:0 (1 samples, 1.39%)</title><rect x="960.6" y="1557" width="16.3" height="15.0" fill="rgb(204,104,0)" rx="2" ry="2" />
+<text  x="963.56" y="1567.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="895.0" y="1909" width="16.4" height="15.0" fill="rgb(191,91,0)" rx="2" ry="2" />
+<text  x="898.00" y="1919.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK2at6native12_GLOBAL__N_18LSTMCellINS1_10CellParamsEEclERKNS_6TensorERKSt5tupleIIS5_S5_EERKS3_:0 (10 samples, 13.89%)</title><rect x="91.9" y="1765" width="163.9" height="15.0" fill="rgb(217,117,0)" rx="2" ry="2" />
+<text  x="94.94" y="1775.5" >0xc:_ZNK2at6native12_..</text>
+</g>
+<g >
+<title>0xc:__libc_malloc:0 (2 samples, 2.78%)</title><rect x="157.5" y="1685" width="32.8" height="15.0" fill="rgb(242,142,0)" rx="2" ry="2" />
+<text  x="160.50" y="1695.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autograd8Variable12AutogradMetaD2Ev:0 (2 samples, 2.78%)</title><rect x="1058.9" y="2325" width="32.8" height="15.0" fill="rgb(217,117,0)" rx="2" ry="2" />
+<text  x="1061.89" y="2335.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_ZNK2at6Tensor3mulERKS0_:0 (1 samples, 1.39%)</title><rect x="190.3" y="1749" width="16.4" height="15.0" fill="rgb(248,148,0)" rx="2" ry="2" />
+<text  x="193.28" y="1759.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="944.2" y="1797" width="16.4" height="15.0" fill="rgb(245,145,0)" rx="2" ry="2" />
+<text  x="947.17" y="1807.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="1541" width="16.3" height="15.0" fill="rgb(227,127,0)" rx="2" ry="2" />
+<text  x="963.56" y="1551.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK5torch8autograd12VariableType5zero_ERN2at6TensorE:0 (2 samples, 2.78%)</title><rect x="862.2" y="2357" width="32.8" height="15.0" fill="rgb(216,116,0)" rx="2" ry="2" />
+<text  x="865.22" y="2367.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyObject_CallMethodIdObjArgs:0 (1 samples, 1.39%)</title><rect x="911.4" y="1957" width="16.4" height="15.0" fill="rgb(224,124,0)" rx="2" ry="2" />
+<text  x="914.39" y="1967.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load:971 (1 samples, 1.39%)</title><rect x="911.4" y="1429" width="16.4" height="15.0" fill="rgb(228,228,69)" rx="2" ry="2" />
+<text  x="914.39" y="1439.5" ></text>
+</g>
+<g >
+<title>0xc:builtin___import__:0 (1 samples, 1.39%)</title><rect x="960.6" y="1301" width="16.3" height="15.0" fill="rgb(190,90,0)" rx="2" ry="2" />
+<text  x="963.56" y="1311.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2437" width="16.4" height="15.0" fill="rgb(196,96,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2447.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (4 samples, 5.56%)</title><rect x="895.0" y="2325" width="65.6" height="15.0" fill="rgb(227,127,0)" rx="2" ry="2" />
+<text  x="898.00" y="2335.5" >0xc:fas..</text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/nn/modules/module.py:zero_grad:1013 (2 samples, 2.78%)</title><rect x="976.9" y="2389" width="32.8" height="15.0" fill="rgb(62,211,62)" rx="2" ry="2" />
+<text  x="979.94" y="2399.5" >/h..</text>
+</g>
+<g >
+<title>0xc:_ZNK2at11TypeDefault7sigmoidERKNS_6TensorE:0 (1 samples, 1.39%)</title><rect x="239.4" y="1733" width="16.4" height="15.0" fill="rgb(243,143,0)" rx="2" ry="2" />
+<text  x="242.44" y="1743.5" ></text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCode:0 (1 samples, 1.39%)</title><rect x="960.6" y="2037" width="16.3" height="15.0" fill="rgb(198,98,0)" rx="2" ry="2" />
+<text  x="963.56" y="2047.5" ></text>
+</g>
+<g >
+<title>test2.py:&lt;module&gt;:81 (1 samples, 1.39%)</title><rect x="1009.7" y="2453" width="16.4" height="15.0" fill="rgb(84,232,84)" rx="2" ry="2" />
+<text  x="1012.72" y="2463.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_CallMethodIdObjArgs:0 (5 samples, 6.94%)</title><rect x="895.0" y="2421" width="81.9" height="15.0" fill="rgb(243,143,0)" rx="2" ry="2" />
+<text  x="898.00" y="2431.5" >0xc:_PyOb..</text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="255.8" y="1941" width="16.4" height="15.0" fill="rgb(209,109,0)" rx="2" ry="2" />
+<text  x="258.83" y="1951.5" ></text>
+</g>
+<g >
+<title>0xc:PyCFunction_Call:0 (1 samples, 1.39%)</title><rect x="944.2" y="1541" width="16.4" height="15.0" fill="rgb(211,111,0)" rx="2" ry="2" />
+<text  x="947.17" y="1551.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autograd13make_variableEN2at6TensorEbb:0 (1 samples, 1.39%)</title><rect x="1157.2" y="2309" width="16.4" height="15.0" fill="rgb(233,133,0)" rx="2" ry="2" />
+<text  x="1160.22" y="2319.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK2at11TypeDefault6linearERKNS_6TensorES3_S3_:0 (2 samples, 2.78%)</title><rect x="206.7" y="1733" width="32.7" height="15.0" fill="rgb(225,125,0)" rx="2" ry="2" />
+<text  x="209.67" y="1743.5" >0x..</text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_call_with_frames_removed:219 (1 samples, 1.39%)</title><rect x="960.6" y="517" width="16.3" height="15.0" fill="rgb(181,181,52)" rx="2" ry="2" />
+<text  x="963.56" y="527.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN3c104guts11make_uniqueIN5torch8autograd8Variable12AutogradMetaEJEEENSt9enable_ifIXntsrSt8is_arrayIT_E5valueESt10unique_ptrIS8_St14default_deleteIS8_EEE4typeEDpOT0_:0 (1 samples, 1.39%)</title><rect x="1140.8" y="2293" width="16.4" height="15.0" fill="rgb(207,107,0)" rx="2" ry="2" />
+<text  x="1143.83" y="2303.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="1109" width="16.3" height="15.0" fill="rgb(236,136,0)" rx="2" ry="2" />
+<text  x="963.56" y="1119.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (15 samples, 20.83%)</title><rect x="26.4" y="2149" width="245.8" height="15.0" fill="rgb(253,153,0)" rx="2" ry="2" />
+<text  x="29.39" y="2159.5" >0xc:_PyObject_FastCallDict:0</text>
+</g>
+<g >
+<title>0xc:fast_function:0 (4 samples, 5.56%)</title><rect x="895.0" y="2133" width="65.6" height="15.0" fill="rgb(223,123,0)" rx="2" ry="2" />
+<text  x="898.00" y="2143.5" >0xc:fas..</text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCode:0 (71 samples, 98.61%)</title><rect x="10.0" y="2501" width="1163.6" height="15.0" fill="rgb(249,149,0)" rx="2" ry="2" />
+<text  x="13.00" y="2511.5" >0xc:PyEval_EvalCode:0</text>
+</g>
+<g >
+<title>0xc:_ZNSt16_Sp_counted_baseILN9__gnu_cxx12_Lock_policyE2EE10_M_releaseEv:0 (1 samples, 1.39%)</title><rect x="1075.3" y="2277" width="16.4" height="15.0" fill="rgb(198,98,0)" rx="2" ry="2" />
+<text  x="1078.28" y="2287.5" ></text>
+</g>
+<g >
+<title>0xc:PyCFunction_Call:0 (4 samples, 5.56%)</title><rect x="895.0" y="2069" width="65.6" height="15.0" fill="rgb(244,144,0)" rx="2" ry="2" />
+<text  x="898.00" y="2079.5" >0xc:PyC..</text>
+</g>
+<g >
+<title>0xc:PyObject_Call:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2389" width="16.4" height="15.0" fill="rgb(243,143,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2399.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK2at7CPUType16_copy_same_type_ERNS_6TensorERKS1_:0 (1 samples, 1.39%)</title><rect x="223.1" y="1605" width="16.3" height="15.0" fill="rgb(254,154,0)" rx="2" ry="2" />
+<text  x="226.06" y="1615.5" ></text>
+</g>
+<g >
+<title>0xc:builtin_exec:0 (1 samples, 1.39%)</title><rect x="895.0" y="1589" width="16.4" height="15.0" fill="rgb(241,141,0)" rx="2" ry="2" />
+<text  x="898.00" y="1599.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNSt6vectorIN5torch8autograd8VariableESaIS2_EE7reserveEm:0 (2 samples, 2.78%)</title><rect x="157.5" y="1717" width="32.8" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="160.50" y="1727.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="1349" width="16.3" height="15.0" fill="rgb(209,109,0)" rx="2" ry="2" />
+<text  x="963.56" y="1359.5" ></text>
+</g>
+<g >
+<title>0xc:_IO_str_seekoff:0 (1 samples, 1.39%)</title><rect x="1075.3" y="2197" width="16.4" height="15.0" fill="rgb(227,127,0)" rx="2" ry="2" />
+<text  x="1078.28" y="2207.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_GC_NewVar:0 (1 samples, 1.39%)</title><rect x="927.8" y="1589" width="16.4" height="15.0" fill="rgb(202,102,0)" rx="2" ry="2" />
+<text  x="930.78" y="1599.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="741" width="16.3" height="15.0" fill="rgb(193,93,0)" rx="2" ry="2" />
+<text  x="963.56" y="751.5" ></text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/nn/modules/module.py:__call__:493 (1 samples, 1.39%)</title><rect x="1026.1" y="2293" width="16.4" height="15.0" fill="rgb(52,202,52)" rx="2" ry="2" />
+<text  x="1029.11" y="2303.5" ></text>
+</g>
+<g >
+<title>0xc:_IO_str_seekoff:0 (1 samples, 1.39%)</title><rect x="911.4" y="1221" width="16.4" height="15.0" fill="rgb(219,119,0)" rx="2" ry="2" />
+<text  x="914.39" y="1231.5" ></text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCodeEx:0 (1 samples, 1.39%)</title><rect x="960.6" y="869" width="16.3" height="15.0" fill="rgb(254,154,0)" rx="2" ry="2" />
+<text  x="963.56" y="879.5" ></text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2229" width="16.4" height="15.0" fill="rgb(253,153,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2239.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="272.2" y="2213" width="16.4" height="15.0" fill="rgb(193,93,0)" rx="2" ry="2" />
+<text  x="275.22" y="2223.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (2 samples, 2.78%)</title><rect x="976.9" y="2421" width="32.8" height="15.0" fill="rgb(252,152,0)" rx="2" ry="2" />
+<text  x="979.94" y="2431.5" >0x..</text>
+</g>
+<g >
+<title>0xc:gen_send_ex:0 (2 samples, 2.78%)</title><rect x="976.9" y="2373" width="32.8" height="15.0" fill="rgb(198,98,0)" rx="2" ry="2" />
+<text  x="979.94" y="2383.5" >0x..</text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCodeEx:0 (1 samples, 1.39%)</title><rect x="911.4" y="1557" width="16.4" height="15.0" fill="rgb(233,133,0)" rx="2" ry="2" />
+<text  x="914.39" y="1567.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="960.6" y="1941" width="16.3" height="15.0" fill="rgb(240,140,0)" rx="2" ry="2" />
+<text  x="963.56" y="1951.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="2325" width="16.3" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="963.56" y="2335.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_CallMethodIdObjArgs:0 (1 samples, 1.39%)</title><rect x="895.0" y="1493" width="16.4" height="15.0" fill="rgb(227,127,0)" rx="2" ry="2" />
+<text  x="898.00" y="1503.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="2277" width="16.3" height="15.0" fill="rgb(216,116,0)" rx="2" ry="2" />
+<text  x="963.56" y="2287.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="1797" width="16.3" height="15.0" fill="rgb(242,142,0)" rx="2" ry="2" />
+<text  x="963.56" y="1807.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK5torch8autograd12VariableType9embeddingERKN2at6TensorES5_lbb:0 (1 samples, 1.39%)</title><rect x="255.8" y="1893" width="16.4" height="15.0" fill="rgb(207,107,0)" rx="2" ry="2" />
+<text  x="258.83" y="1903.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap_external&gt;:exec_module:678 (1 samples, 1.39%)</title><rect x="960.6" y="1621" width="16.3" height="15.0" fill="rgb(206,206,61)" rx="2" ry="2" />
+<text  x="963.56" y="1631.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load:971 (1 samples, 1.39%)</title><rect x="960.6" y="1141" width="16.3" height="15.0" fill="rgb(209,209,62)" rx="2" ry="2" />
+<text  x="963.56" y="1151.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap_external&gt;:exec_module:678 (1 samples, 1.39%)</title><rect x="960.6" y="933" width="16.3" height="15.0" fill="rgb(199,199,59)" rx="2" ry="2" />
+<text  x="963.56" y="943.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1669" width="16.4" height="15.0" fill="rgb(197,97,0)" rx="2" ry="2" />
+<text  x="898.00" y="1679.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load_unlocked:955 (1 samples, 1.39%)</title><rect x="960.6" y="2229" width="16.3" height="15.0" fill="rgb(176,176,50)" rx="2" ry="2" />
+<text  x="963.56" y="2239.5" ></text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/nn/modules/module.py:__call__:493 (1 samples, 1.39%)</title><rect x="1091.7" y="2293" width="16.4" height="15.0" fill="rgb(52,202,52)" rx="2" ry="2" />
+<text  x="1094.67" y="2303.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="911.4" y="1333" width="16.4" height="15.0" fill="rgb(207,107,0)" rx="2" ry="2" />
+<text  x="914.39" y="1343.5" ></text>
+</g>
+<g >
+<title>0xc:getset_get:0 (1 samples, 1.39%)</title><rect x="1157.2" y="2341" width="16.4" height="15.0" fill="rgb(193,93,0)" rx="2" ry="2" />
+<text  x="1160.22" y="2351.5" ></text>
+</g>
+<g >
+<title>0xc:PyCFunction_Call:0 (1 samples, 1.39%)</title><rect x="960.6" y="2069" width="16.3" height="15.0" fill="rgb(242,142,0)" rx="2" ry="2" />
+<text  x="963.56" y="2079.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (2 samples, 2.78%)</title><rect x="1108.1" y="2421" width="32.7" height="15.0" fill="rgb(238,138,0)" rx="2" ry="2" />
+<text  x="1111.06" y="2431.5" >0x..</text>
+</g>
+<g >
+<title>0xc:call_function:0 (4 samples, 5.56%)</title><rect x="895.0" y="2277" width="65.6" height="15.0" fill="rgb(206,106,0)" rx="2" ry="2" />
+<text  x="898.00" y="2287.5" >0xc:cal..</text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1045" width="16.4" height="15.0" fill="rgb(204,104,0)" rx="2" ry="2" />
+<text  x="898.00" y="1055.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK5torch8autograd12VariableType5stackEN3c108ArrayRefIN2at6TensorEEEl:0 (4 samples, 5.56%)</title><rect x="26.4" y="1765" width="65.5" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="29.39" y="1775.5" >0xc:_ZN..</text>
+</g>
+<g >
+<title>0xc:_ZN2at6native21as_strided_tensorimplERKNS_6TensorEN3c108ArrayRefIlEES6_NS4_8optionalIlEE:0 (2 samples, 2.78%)</title><rect x="59.2" y="1669" width="32.7" height="15.0" fill="rgb(213,113,0)" rx="2" ry="2" />
+<text  x="62.17" y="1679.5" >0x..</text>
+</g>
+<g >
+<title>0xc:PySequence_List:0 (1 samples, 1.39%)</title><rect x="895.0" y="901" width="16.4" height="15.0" fill="rgb(221,121,0)" rx="2" ry="2" />
+<text  x="898.00" y="911.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="960.6" y="1365" width="16.3" height="15.0" fill="rgb(196,96,0)" rx="2" ry="2" />
+<text  x="963.56" y="1375.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (2 samples, 2.78%)</title><rect x="1108.1" y="2341" width="32.7" height="15.0" fill="rgb(244,144,0)" rx="2" ry="2" />
+<text  x="1111.06" y="2351.5" >0x..</text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="993.3" y="2101" width="16.4" height="15.0" fill="rgb(237,137,0)" rx="2" ry="2" />
+<text  x="996.33" y="2111.5" ></text>
+</g>
+<g >
+<title>0xc:_PyUnicode_ToDecimalDigit:0 (1 samples, 1.39%)</title><rect x="895.0" y="757" width="16.4" height="15.0" fill="rgb(250,150,0)" rx="2" ry="2" />
+<text  x="898.00" y="767.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_Call_Prepend:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2373" width="16.4" height="15.0" fill="rgb(253,153,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2383.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (14 samples, 19.44%)</title><rect x="26.4" y="1973" width="229.4" height="15.0" fill="rgb(235,135,0)" rx="2" ry="2" />
+<text  x="29.39" y="1983.5" >0xc:fast_function:0</text>
+</g>
+<g >
+<title>0xc:PyObject_Call:0 (15 samples, 20.83%)</title><rect x="26.4" y="2085" width="245.8" height="15.0" fill="rgb(193,93,0)" rx="2" ry="2" />
+<text  x="29.39" y="2095.5" >0xc:PyObject_Call:0</text>
+</g>
+<g >
+<title>0xc:_PyCFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="993.3" y="2085" width="16.4" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="996.33" y="2095.5" ></text>
+</g>
+<g >
+<title>/home/liuxin/.local/lib/python3.6/site-packages/torch/__init__.py:&lt;module&gt;:179 (1 samples, 1.39%)</title><rect x="895.0" y="1989" width="16.4" height="15.0" fill="rgb(59,209,59)" rx="2" ry="2" />
+<text  x="898.00" y="1999.5" ></text>
+</g>
+<g >
+<title>0xc:_PyType_Lookup:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2021" width="16.4" height="15.0" fill="rgb(253,153,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2031.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autograd11set_historyERN2at6TensorERKSt10shared_ptrINS0_8FunctionEE:0 (1 samples, 1.39%)</title><rect x="272.2" y="2053" width="16.4" height="15.0" fill="rgb(245,145,0)" rx="2" ry="2" />
+<text  x="275.22" y="2063.5" ></text>
+</g>
+<g >
+<title>0xc:set_contains:0 (1 samples, 1.39%)</title><rect x="993.3" y="2229" width="16.4" height="15.0" fill="rgb(206,106,0)" rx="2" ry="2" />
+<text  x="996.33" y="2239.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load:971 (1 samples, 1.39%)</title><rect x="960.6" y="453" width="16.3" height="15.0" fill="rgb(178,178,51)" rx="2" ry="2" />
+<text  x="963.56" y="463.5" ></text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCodeEx:0 (1 samples, 1.39%)</title><rect x="960.6" y="2021" width="16.3" height="15.0" fill="rgb(248,148,0)" rx="2" ry="2" />
+<text  x="963.56" y="2031.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2421" width="16.4" height="15.0" fill="rgb(212,112,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2431.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_call_with_frames_removed:219 (1 samples, 1.39%)</title><rect x="895.0" y="1157" width="16.4" height="15.0" fill="rgb(207,207,61)" rx="2" ry="2" />
+<text  x="898.00" y="1167.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="997" width="16.3" height="15.0" fill="rgb(232,132,0)" rx="2" ry="2" />
+<text  x="963.56" y="1007.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="1045" width="16.3" height="15.0" fill="rgb(219,119,0)" rx="2" ry="2" />
+<text  x="963.56" y="1055.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="895.0" y="1445" width="16.4" height="15.0" fill="rgb(218,118,0)" rx="2" ry="2" />
+<text  x="898.00" y="1455.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (35 samples, 48.61%)</title><rect x="288.6" y="2405" width="573.6" height="15.0" fill="rgb(236,136,0)" rx="2" ry="2" />
+<text  x="291.61" y="2415.5" >0xc:_PyEval_EvalFrameDefault:0</text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load:971 (1 samples, 1.39%)</title><rect x="911.4" y="1893" width="16.4" height="15.0" fill="rgb(226,226,68)" rx="2" ry="2" />
+<text  x="914.39" y="1903.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (4 samples, 5.56%)</title><rect x="895.0" y="2005" width="65.6" height="15.0" fill="rgb(220,120,0)" rx="2" ry="2" />
+<text  x="898.00" y="2015.5" >0xc:_Py..</text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="911.4" y="1749" width="16.4" height="15.0" fill="rgb(240,140,0)" rx="2" ry="2" />
+<text  x="914.39" y="1759.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="944.2" y="1749" width="16.4" height="15.0" fill="rgb(215,115,0)" rx="2" ry="2" />
+<text  x="947.17" y="1759.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_load_unlocked:665 (4 samples, 5.56%)</title><rect x="895.0" y="2229" width="65.6" height="15.0" fill="rgb(186,186,54)" rx="2" ry="2" />
+<text  x="898.00" y="2239.5" >&lt;frozen..</text>
+</g>
+<g >
+<title>0xc:_PyCFunction_FastCallDict:0 (14 samples, 19.44%)</title><rect x="26.4" y="1861" width="229.4" height="15.0" fill="rgb(213,113,0)" rx="2" ry="2" />
+<text  x="29.39" y="1871.5" >0xc:_PyCFunction_FastCallDict:0</text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="421" width="16.3" height="15.0" fill="rgb(204,104,0)" rx="2" ry="2" />
+<text  x="963.56" y="431.5" ></text>
+</g>
+<g >
+<title>0xc:PySequence_Fast:0 (1 samples, 1.39%)</title><rect x="895.0" y="917" width="16.4" height="15.0" fill="rgb(228,128,0)" rx="2" ry="2" />
+<text  x="898.00" y="927.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="911.4" y="1669" width="16.4" height="15.0" fill="rgb(213,113,0)" rx="2" ry="2" />
+<text  x="914.39" y="1679.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNSt16_Sp_counted_baseILN9__gnu_cxx12_Lock_policyE2EE10_M_releaseEv:0 (2 samples, 2.78%)</title><rect x="1058.9" y="2309" width="32.8" height="15.0" fill="rgb(240,140,0)" rx="2" ry="2" />
+<text  x="1061.89" y="2319.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="927.8" y="1637" width="16.4" height="15.0" fill="rgb(233,133,0)" rx="2" ry="2" />
+<text  x="930.78" y="1647.5" ></text>
+</g>
+<g >
+<title>0xc:_PyImport_LoadDynamicModuleWithSpec:0 (1 samples, 1.39%)</title><rect x="944.2" y="1509" width="16.4" height="15.0" fill="rgb(216,116,0)" rx="2" ry="2" />
+<text  x="947.17" y="1519.5" ></text>
+</g>
+<g >
+<title>0xc:PyObject_Call:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2277" width="16.4" height="15.0" fill="rgb(214,114,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2287.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK5torch8autograd12VariableType7sigmoidERKN2at6TensorE:0 (1 samples, 1.39%)</title><rect x="239.4" y="1749" width="16.4" height="15.0" fill="rgb(243,143,0)" rx="2" ry="2" />
+<text  x="242.44" y="1759.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch5utils12_GLOBAL__N_122internal_new_from_dataERKN2at4TypeEN3c1010ScalarTypeENS6_8optionalINS6_6DeviceEEEP7_objectbbbb:0 (1 samples, 1.39%)</title><rect x="1009.7" y="2277" width="16.4" height="15.0" fill="rgb(207,107,0)" rx="2" ry="2" />
+<text  x="1012.72" y="2287.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (4 samples, 5.56%)</title><rect x="895.0" y="2117" width="65.6" height="15.0" fill="rgb(208,108,0)" rx="2" ry="2" />
+<text  x="898.00" y="2127.5" >0xc:_Py..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2325" width="16.4" height="15.0" fill="rgb(198,98,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2335.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1029" width="16.4" height="15.0" fill="rgb(237,137,0)" rx="2" ry="2" />
+<text  x="898.00" y="1039.5" ></text>
+</g>
+<g >
+<title>/opt/miniconda3/lib/python3.6/platform.py:_syscmd_uname:758 (1 samples, 1.39%)</title><rect x="927.8" y="1781" width="16.4" height="15.0" fill="rgb(56,206,56)" rx="2" ry="2" />
+<text  x="930.78" y="1791.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_handle_fromlist:1023 (1 samples, 1.39%)</title><rect x="960.6" y="645" width="16.3" height="15.0" fill="rgb(189,189,55)" rx="2" ry="2" />
+<text  x="963.56" y="655.5" ></text>
+</g>
+<g >
+<title>0xc:_PyCFunction_FastCallDict:0 (2 samples, 2.78%)</title><rect x="1108.1" y="2245" width="32.7" height="15.0" fill="rgb(200,100,0)" rx="2" ry="2" />
+<text  x="1111.06" y="2255.5" >0x..</text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="895.0" y="1813" width="16.4" height="15.0" fill="rgb(224,124,0)" rx="2" ry="2" />
+<text  x="898.00" y="1823.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (4 samples, 5.56%)</title><rect x="895.0" y="2309" width="65.6" height="15.0" fill="rgb(239,139,0)" rx="2" ry="2" />
+<text  x="898.00" y="2319.5" >0xc:_Py..</text>
+</g>
+<g >
+<title>0xc:call_function:0 (2 samples, 2.78%)</title><rect x="1108.1" y="2357" width="32.7" height="15.0" fill="rgb(218,118,0)" rx="2" ry="2" />
+<text  x="1111.06" y="2367.5" >0x..</text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCode:0 (1 samples, 1.39%)</title><rect x="895.0" y="1573" width="16.4" height="15.0" fill="rgb(253,153,0)" rx="2" ry="2" />
+<text  x="898.00" y="1583.5" ></text>
+</g>
+<g >
+<title>0xc:builtin___import__:0 (1 samples, 1.39%)</title><rect x="960.6" y="613" width="16.3" height="15.0" fill="rgb(231,131,0)" rx="2" ry="2" />
+<text  x="963.56" y="623.5" ></text>
+</g>
+<g >
+<title>0xc:builtin_exec:0 (1 samples, 1.39%)</title><rect x="911.4" y="1589" width="16.4" height="15.0" fill="rgb(251,151,0)" rx="2" ry="2" />
+<text  x="914.39" y="1599.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load_unlocked:955 (1 samples, 1.39%)</title><rect x="911.4" y="1829" width="16.4" height="15.0" fill="rgb(224,224,67)" rx="2" ry="2" />
+<text  x="914.39" y="1839.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="853" width="16.3" height="15.0" fill="rgb(237,137,0)" rx="2" ry="2" />
+<text  x="963.56" y="863.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK2at11TypeDefault9unsqueezeERKNS_6TensorEl:0 (2 samples, 2.78%)</title><rect x="59.2" y="1717" width="32.7" height="15.0" fill="rgb(202,102,0)" rx="2" ry="2" />
+<text  x="62.17" y="1727.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2325" width="16.4" height="15.0" fill="rgb(237,137,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2335.5" ></text>
+</g>
+<g >
+<title>0xc:THFloatTensor_nElement:0 (1 samples, 1.39%)</title><rect x="878.6" y="2277" width="16.4" height="15.0" fill="rgb(213,113,0)" rx="2" ry="2" />
+<text  x="881.61" y="2287.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="949" width="16.3" height="15.0" fill="rgb(222,122,0)" rx="2" ry="2" />
+<text  x="963.56" y="959.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autograd8FunctionD2Ev:0 (1 samples, 1.39%)</title><rect x="1075.3" y="2229" width="16.4" height="15.0" fill="rgb(227,127,0)" rx="2" ry="2" />
+<text  x="1078.28" y="2239.5" ></text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="895.0" y="1925" width="16.4" height="15.0" fill="rgb(247,147,0)" rx="2" ry="2" />
+<text  x="898.00" y="1935.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK2at11TypeDefault4lstmERKNS_6TensorEN3c108ArrayRefIS1_EES6_bldbbb:0 (14 samples, 19.44%)</title><rect x="26.4" y="1813" width="229.4" height="15.0" fill="rgb(234,134,0)" rx="2" ry="2" />
+<text  x="29.39" y="1823.5" >0xc:_ZNK2at11TypeDefault4lstmE..</text>
+</g>
+<g >
+<title>0xc:_ZN2at6native9embeddingERKNS_6TensorES3_lbb:0 (1 samples, 1.39%)</title><rect x="255.8" y="1861" width="16.4" height="15.0" fill="rgb(240,140,0)" rx="2" ry="2" />
+<text  x="258.83" y="1871.5" ></text>
+</g>
+<g >
+<title>0xc:slot_tp_call:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2405" width="16.4" height="15.0" fill="rgb(216,116,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2415.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autogradL20THPVariable_nll_lossEP7_objectS2_S2_:0 (1 samples, 1.39%)</title><rect x="272.2" y="2133" width="16.4" height="15.0" fill="rgb(242,142,0)" rx="2" ry="2" />
+<text  x="275.22" y="2143.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autogradL16THPVariable_lstmEP7_objectS2_S2_:0 (14 samples, 19.44%)</title><rect x="26.4" y="1845" width="229.4" height="15.0" fill="rgb(254,154,0)" rx="2" ry="2" />
+<text  x="29.39" y="1855.5" >0xc:_ZN5torch8autogradL16THPVa..</text>
+</g>
+<g >
+<title>0xc:__libc_malloc:0 (1 samples, 1.39%)</title><rect x="1140.8" y="2261" width="16.4" height="15.0" fill="rgb(230,130,0)" rx="2" ry="2" />
+<text  x="1143.83" y="2271.5" ></text>
+</g>
+<g >
+<title>0xc:PyCFunction_Call:0 (1 samples, 1.39%)</title><rect x="895.0" y="1141" width="16.4" height="15.0" fill="rgb(198,98,0)" rx="2" ry="2" />
+<text  x="898.00" y="1151.5" ></text>
+</g>
+<g >
+<title>0xc:_dl_find_dso_for_object:0 (1 samples, 1.39%)</title><rect x="944.2" y="1413" width="16.4" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="947.17" y="1423.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="85" width="16.3" height="15.0" fill="rgb(240,140,0)" rx="2" ry="2" />
+<text  x="963.56" y="95.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (2 samples, 2.78%)</title><rect x="1140.8" y="2405" width="32.8" height="15.0" fill="rgb(241,141,0)" rx="2" ry="2" />
+<text  x="1143.83" y="2415.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="927.8" y="1813" width="16.4" height="15.0" fill="rgb(214,114,0)" rx="2" ry="2" />
+<text  x="930.78" y="1823.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (2 samples, 2.78%)</title><rect x="976.9" y="2261" width="32.8" height="15.0" fill="rgb(232,132,0)" rx="2" ry="2" />
+<text  x="979.94" y="2271.5" >0x..</text>
+</g>
+<g >
+<title>0xc:PyImport_ImportModuleLevelObject:0 (1 samples, 1.39%)</title><rect x="960.6" y="1509" width="16.3" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="963.56" y="1519.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2245" width="16.4" height="15.0" fill="rgb(199,99,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2255.5" ></text>
+</g>
+<g >
+<title>0xc:gen_send_ex:0 (1 samples, 1.39%)</title><rect x="976.9" y="2229" width="16.4" height="15.0" fill="rgb(223,123,0)" rx="2" ry="2" />
+<text  x="979.94" y="2239.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="1091.7" y="2357" width="16.4" height="15.0" fill="rgb(239,139,0)" rx="2" ry="2" />
+<text  x="1094.67" y="2367.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="944.2" y="1669" width="16.4" height="15.0" fill="rgb(240,140,0)" rx="2" ry="2" />
+<text  x="947.17" y="1679.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="911.4" y="1381" width="16.4" height="15.0" fill="rgb(220,120,0)" rx="2" ry="2" />
+<text  x="914.39" y="1391.5" ></text>
+</g>
+<g >
+<title>0xc:strlen:0 (1 samples, 1.39%)</title><rect x="1026.1" y="2101" width="16.4" height="15.0" fill="rgb(240,140,0)" rx="2" ry="2" />
+<text  x="1029.11" y="2111.5" ></text>
+</g>
+<g >
+<title>0xc:PyDict_SetItem:0 (2 samples, 2.78%)</title><rect x="1058.9" y="2437" width="32.8" height="15.0" fill="rgb(243,143,0)" rx="2" ry="2" />
+<text  x="1061.89" y="2447.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="993.3" y="2165" width="16.4" height="15.0" fill="rgb(208,108,0)" rx="2" ry="2" />
+<text  x="996.33" y="2175.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="960.6" y="101" width="16.3" height="15.0" fill="rgb(193,93,0)" rx="2" ry="2" />
+<text  x="963.56" y="111.5" ></text>
+</g>
+<g >
+<title>0xc:PyDict_GetItemString:0 (2 samples, 2.78%)</title><rect x="1108.1" y="2181" width="32.7" height="15.0" fill="rgb(254,154,0)" rx="2" ry="2" />
+<text  x="1111.06" y="2191.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="2005" width="16.3" height="15.0" fill="rgb(251,151,0)" rx="2" ry="2" />
+<text  x="963.56" y="2015.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="895.0" y="1317" width="16.4" height="15.0" fill="rgb(190,90,0)" rx="2" ry="2" />
+<text  x="898.00" y="1327.5" ></text>
+</g>
+<g >
+<title>0xc:_ZL20THPVariable_get_dataP11THPVariable:0 (1 samples, 1.39%)</title><rect x="1140.8" y="2325" width="16.4" height="15.0" fill="rgb(191,91,0)" rx="2" ry="2" />
+<text  x="1143.83" y="2335.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="255.8" y="1957" width="16.4" height="15.0" fill="rgb(230,130,0)" rx="2" ry="2" />
+<text  x="258.83" y="1967.5" ></text>
+</g>
+<g >
+<title>0xc:PyImport_ImportModuleLevelObject:0 (1 samples, 1.39%)</title><rect x="960.6" y="1285" width="16.3" height="15.0" fill="rgb(250,150,0)" rx="2" ry="2" />
+<text  x="963.56" y="1295.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (17 samples, 23.61%)</title><rect x="10.0" y="2341" width="278.6" height="15.0" fill="rgb(225,125,0)" rx="2" ry="2" />
+<text  x="13.00" y="2351.5" >0xc:_PyEval_EvalCodeWithName:0</text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="2341" width="16.3" height="15.0" fill="rgb(242,142,0)" rx="2" ry="2" />
+<text  x="963.56" y="2351.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap_external&gt;:exec_module:678 (4 samples, 5.56%)</title><rect x="895.0" y="2165" width="65.6" height="15.0" fill="rgb(189,189,55)" rx="2" ry="2" />
+<text  x="898.00" y="2175.5" >&lt;frozen..</text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="2213" width="16.3" height="15.0" fill="rgb(253,153,0)" rx="2" ry="2" />
+<text  x="963.56" y="2223.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="895.0" y="1253" width="16.4" height="15.0" fill="rgb(206,106,0)" rx="2" ry="2" />
+<text  x="898.00" y="1263.5" ></text>
+</g>
+<g >
+<title>&lt;frozen importlib._bootstrap&gt;:_find_and_load_unlocked:955 (1 samples, 1.39%)</title><rect x="960.6" y="1077" width="16.3" height="15.0" fill="rgb(191,191,56)" rx="2" ry="2" />
+<text  x="963.56" y="1087.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="895.0" y="1717" width="16.4" height="15.0" fill="rgb(205,105,0)" rx="2" ry="2" />
+<text  x="898.00" y="1727.5" ></text>
+</g>
+<g >
+<title>0xc:PyImport_ImportModuleLevelObject:0 (1 samples, 1.39%)</title><rect x="944.2" y="1973" width="16.4" height="15.0" fill="rgb(230,130,0)" rx="2" ry="2" />
+<text  x="947.17" y="1983.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autogradL18THPVariable_tensorEP7_objectS2_S2_:0 (1 samples, 1.39%)</title><rect x="1009.7" y="2309" width="16.4" height="15.0" fill="rgb(235,135,0)" rx="2" ry="2" />
+<text  x="1012.72" y="2319.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autogradL16THPVariable_viewEP7_objectS2_S2_:0 (1 samples, 1.39%)</title><rect x="10.0" y="2197" width="16.4" height="15.0" fill="rgb(228,128,0)" rx="2" ry="2" />
+<text  x="13.00" y="2207.5" ></text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="927.8" y="1653" width="16.4" height="15.0" fill="rgb(223,123,0)" rx="2" ry="2" />
+<text  x="930.78" y="1663.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autograd8Variable12AutogradMetaD0Ev:0 (2 samples, 2.78%)</title><rect x="1058.9" y="2341" width="32.8" height="15.0" fill="rgb(226,126,0)" rx="2" ry="2" />
+<text  x="1061.89" y="2351.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_Znwm:0 (1 samples, 1.39%)</title><rect x="1140.8" y="2277" width="16.4" height="15.0" fill="rgb(200,100,0)" rx="2" ry="2" />
+<text  x="1143.83" y="2287.5" ></text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (35 samples, 48.61%)</title><rect x="288.6" y="2421" width="573.6" height="15.0" fill="rgb(211,111,0)" rx="2" ry="2" />
+<text  x="291.61" y="2431.5" >0xc:_PyEval_EvalCodeWithName:0</text>
+</g>
+<g >
+<title>0xc:_ZN5torch5utils12_GLOBAL__N_115recursive_storeEPcN3c108ArrayRefIlEES5_lNS3_10ScalarTypeEiP7_object:0 (1 samples, 1.39%)</title><rect x="1009.7" y="2261" width="16.4" height="15.0" fill="rgb(209,109,0)" rx="2" ry="2" />
+<text  x="1012.72" y="2271.5" ></text>
+</g>
+<g >
+<title>0xc:_ZNK5torch8autograd12VariableType5addmmERKN2at6TensorES5_S5_N3c106ScalarES7_:0 (2 samples, 2.78%)</title><rect x="206.7" y="1701" width="32.7" height="15.0" fill="rgb(201,101,0)" rx="2" ry="2" />
+<text  x="209.67" y="1711.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_IO_str_seekoff:0 (1 samples, 1.39%)</title><rect x="1058.9" y="2213" width="16.4" height="15.0" fill="rgb(251,151,0)" rx="2" ry="2" />
+<text  x="1061.89" y="2223.5" ></text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="895.0" y="1461" width="16.4" height="15.0" fill="rgb(236,136,0)" rx="2" ry="2" />
+<text  x="898.00" y="1471.5" ></text>
+</g>
+<g >
+<title>0xc:PyLong_FromUnsignedLong:0 (1 samples, 1.39%)</title><rect x="993.3" y="2069" width="16.4" height="15.0" fill="rgb(248,148,0)" rx="2" ry="2" />
+<text  x="996.33" y="2079.5" ></text>
+</g>
+<g >
+<title>0xc:call_function:0 (1 samples, 1.39%)</title><rect x="944.2" y="1685" width="16.4" height="15.0" fill="rgb(202,102,0)" rx="2" ry="2" />
+<text  x="947.17" y="1695.5" ></text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (1 samples, 1.39%)</title><rect x="960.6" y="1237" width="16.3" height="15.0" fill="rgb(191,91,0)" rx="2" ry="2" />
+<text  x="963.56" y="1247.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (37 samples, 51.39%)</title><rect x="288.6" y="2437" width="606.4" height="15.0" fill="rgb(199,99,0)" rx="2" ry="2" />
+<text  x="291.61" y="2447.5" >0xc:fast_function:0</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalCodeWithName:0 (1 samples, 1.39%)</title><rect x="895.0" y="1013" width="16.4" height="15.0" fill="rgb(205,105,0)" rx="2" ry="2" />
+<text  x="898.00" y="1023.5" ></text>
+</g>
+<g >
+<title>0xc:_ZN5torch8autogradL17THPVariable_zero_EP7_objectS2_:0 (2 samples, 2.78%)</title><rect x="862.2" y="2373" width="32.8" height="15.0" fill="rgb(192,92,0)" rx="2" ry="2" />
+<text  x="865.22" y="2383.5" >0x..</text>
+</g>
+<g >
+<title>0xc:_PyObject_FastCallDict:0 (1 samples, 1.39%)</title><rect x="960.6" y="1253" width="16.3" height="15.0" fill="rgb(240,140,0)" rx="2" ry="2" />
+<text  x="963.56" y="1263.5" ></text>
+</g>
+<g >
+<title>0xc:fast_function:0 (1 samples, 1.39%)</title><rect x="960.6" y="693" width="16.3" height="15.0" fill="rgb(244,144,0)" rx="2" ry="2" />
+<text  x="963.56" y="703.5" ></text>
+</g>
+<g >
+<title>0xc:PyEval_EvalCode:0 (1 samples, 1.39%)</title><rect x="960.6" y="885" width="16.3" height="15.0" fill="rgb(226,126,0)" rx="2" ry="2" />
+<text  x="963.56" y="895.5" ></text>
+</g>
+<g >
+<title>0xc:_PyFunction_FastCallDict:0 (15 samples, 20.83%)</title><rect x="26.4" y="2037" width="245.8" height="15.0" fill="rgb(194,94,0)" rx="2" ry="2" />
+<text  x="29.39" y="2047.5" >0xc:_PyFunction_FastCallDict:0</text>
+</g>
+<g >
+<title>0xc:gen_send_ex:0 (1 samples, 1.39%)</title><rect x="895.0" y="869" width="16.4" height="15.0" fill="rgb(235,135,0)" rx="2" ry="2" />
+<text  x="898.00" y="879.5" ></text>
+</g>
+<g >
+<title>0xc:Py_Main:0 (71 samples, 98.61%)</title><rect x="10.0" y="2565" width="1163.6" height="15.0" fill="rgb(218,118,0)" rx="2" ry="2" />
+<text  x="13.00" y="2575.5" >0xc:Py_Main:0</text>
+</g>
+<g >
+<title>0xc:_PyEval_EvalFrameDefault:0 (1 samples, 1.39%)</title><rect x="960.6" y="1429" width="16.3" height="15.0" fill="rgb(199,99,0)" rx="2" ry="2" />
+<text  x="963.56" y="1439.5" ></text>
+</g>
+</g>
+</svg>
