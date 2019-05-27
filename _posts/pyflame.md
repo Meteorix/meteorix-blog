@@ -30,6 +30,8 @@ profile工具基本分成两种思路：
 
 官方提供了pyflame源码，需要自己编译对应python版本，然后调用flamegraph生成火焰图svg。具体可以看[官方文档](https://pyflame.readthedocs.io/en/latest/)。为了方便自己人使用，我写了个pyflame-server。
 
+<!-- more -->
+
 ## pyflame-server
 
 [https://github.com/Meteorix/pyflame-server](https://github.com/Meteorix/pyflame-server)
