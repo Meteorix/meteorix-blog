@@ -37,7 +37,7 @@ profile工具基本分成两种思路：
 [https://github.com/Meteorix/pyflame-server](https://github.com/Meteorix/pyflame-server)
 
 pyflame-server使用步骤很简单：
-1. 下载编译好的pyflame二进制文件，支持py2.6/2.7/3.4/3.5/3.6/3.7
+1. 下载编译好的pyflame二进制文件(Linux x86_64)，支持py2.6/2.7/3.4/3.5/3.6/3.7
 2. pyflame启动python进程，或者attach到正在运行的进程，得到profile.txt
 3. 上传profile.txt，查看火焰图页面
 
