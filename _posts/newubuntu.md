@@ -84,6 +84,10 @@ https://askubuntu.com/questions/865554/how-do-i-install-python-3-6-using-apt-get
 sudo add-apt-repository ppa:jonathonf/python-3.6
 sudo apt-get update
 sudo apt-get install python3.6-dev
-# pip
+# 安装pip
 curl https://bootstrap.pypa.io/ez_setup.py -o - | python3.6 && python3.6 -m easy_install pip
+# 换pip源
+pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+# 安装virtualenv
+python3.6 -m pip install virtualenv --user
 ```
