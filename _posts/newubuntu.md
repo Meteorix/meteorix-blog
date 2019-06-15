@@ -75,3 +75,15 @@ set nu  # 我喜欢加上行号
 set fencs=utf-8,gbk   # 这一行的作用是告诉vim，打开一个文件时，尝试utf8,gbk两种编码
 ```
 
+### python
+
+https://askubuntu.com/questions/865554/how-do-i-install-python-3-6-using-apt-get
+
+```shell
+# python3.6 
+sudo add-apt-repository ppa:jonathonf/python-3.6
+sudo apt-get update
+sudo apt-get install python3.6-dev
+# pip
+curl https://bootstrap.pypa.io/ez_setup.py -o - | python3.6 && python3.6 -m easy_install pip
+```
