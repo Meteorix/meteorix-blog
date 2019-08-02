@@ -3,13 +3,15 @@ title: cuda 101
 
 date: 2019-8-2 11:58:11
 
-tags: [CUDA,深度学习]
+tags: [cuda,深度学习]
 
 ---
 
 # cuda 101
 
-最近开始做深度学习后端和性能优化，做到模型部分需要补补gpu和cuda知识
+最近开始做深度学习后端和性能优化，做到模型部分需要补补gpu和cuda知识。记录此篇入门笔记，配合官方文档食用。
+
+NVIDIA的官方文档和blog写的真好，读了一天非常舒服。很多之前调包（Pytorch/Tensorflow)不理解的地方，都有更深的认识，期待尽早开始写自己的kernel。
 
 ## get started
 

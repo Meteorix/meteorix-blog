@@ -1,6 +1,7 @@
 # meteorix-blog
 
 
+* [cuda101](./_posts/cuda101.md)
 * [6年后，为什么离开网易游戏](./_posts/netease-games.md)
 * [Pyflame解析和扩展](./_posts/pyflame.md)
 * [记一次pytorch的coredump调试](./_posts/pytorch-coredump.md)
