@@ -3,7 +3,7 @@ title: 记一次pytorch的coredump调试
 
 date: 2019-4-30 19:47:32
 
-tags: [Python,机器学习]
+tags: [Python,深度学习]
 
 ---
 
