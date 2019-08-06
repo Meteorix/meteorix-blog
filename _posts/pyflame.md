@@ -88,7 +88,7 @@ Uber写pyflame的哥们离职了，还没人接手这个项目。于是我自己
 1. 修复py3.7兼容性问题，感谢pr
 1. 修复anaconda的兼容性问题，感谢另一个pr
 1. 增加dockerfile，enable所有abi，目前同时支持py2.6/2.7/3.4-3.7
-1. 试图增加c/c++ profile
+1. 支持c/c++ profile，c/c++栈与python栈合并显示
 
 # How magic happens
 
