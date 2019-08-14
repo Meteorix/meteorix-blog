@@ -24,6 +24,8 @@ https://devblogs.nvidia.com/even-easier-introduction-cuda/
 
 ![image](/images/cuda101/grid.jpg)
 
+<!--more-->
+
 gpu上每个kernel函数调用，会包括
 
 1 * grid --- n * block --- m * thread
