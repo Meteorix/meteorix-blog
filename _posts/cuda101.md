@@ -94,7 +94,9 @@ https://devblogs.nvidia.com/unified-memory-cuda-beginners/
 
 ## bandwidth
 
-```bandwidth = bytes / seconds```
+```
+bandwidth = bytes / seconds
+```
 
 显存的上限在500GB/s这个数量级
 
