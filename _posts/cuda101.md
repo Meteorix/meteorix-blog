@@ -28,7 +28,9 @@ https://devblogs.nvidia.com/even-easier-introduction-cuda/
 
 gpu上每个kernel函数调用，会包括
 
+```
 1 * grid --- n * block --- m * thread
+```
 
 ```cpp
 // blockdim == m
@@ -83,7 +85,7 @@ https://devblogs.nvidia.com/unified-memory-cuda-beginners/
 原来是两种不同的共享内存分享方式
 
 1. 旧的（kapler），先分配到gpu，cpu访问时引起page fault，再从gpu读取
-2. 新的（pascal)，先分配到cpu，gpu访问时引起page fault，再从cpu读取
+2. 新的（pascal），先分配到cpu，gpu访问时引起page fault，再从cpu读取
 
 
 新的好处：
