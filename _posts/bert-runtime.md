@@ -127,7 +127,7 @@ Answer: 'a high performance deep learning inference platform'
 
 上面的计算图给了一个BERT `Transformer Encoder`的总览。对``Transformer``还不熟悉的话，可以回头看看Harvard写的著名解读[The Annotated Transformer](http://nlp.seas.harvard.edu/2018/04/03/attention.html)。总共有4点计算图优化，3点在`Transformer`中：
 1. `gelu`激活函数的kernel实现
-2. `residual`和`layernorm`函数的fusion
+2. `skip`和`layernorm`函数的fusion
 3. `Q/K/V`三个矩阵的合并乘法和转置
 
 上面的前3个优化在12层``Transformer``中都会用到，所以性价比很高。第4点优化在最底层`BERT Embedding`层：
@@ -187,10 +187,72 @@ print(gelu.graph)
 
 不过，在PyTorch 1.2的最新代码中，我发现`gelu`也是用了内置的cuda实现，两者几乎等价。
 
-### Residual and Layer-Normalization
+### Skip and Layer-Normalization
+
+LayerNorm层的PyTorch实现
+```
+class LayerNorm(nn.Module):
+    "Construct a layernorm module (See citation for details)."
+    def __init__(self, features, eps=1e-6):
+        super(LayerNorm, self).__init__()
+        self.a_2 = nn.Parameter(torch.ones(features))
+        self.b_2 = nn.Parameter(torch.zeros(features))
+        self.eps = eps
+
+    def forward(self, x):
+        mean = x.mean(-1, keepdim=True)
+        std = x.std(-1, keepdim=True)
+        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
+```
+
+忽略掉几个不重要的参数，主要是计算`mean`和`std`，各需要遍历一次所有输入参数。
+
+加上`LayerNorm`之前的`Skip`层，一共需要遍历三次所有输入参数。
+
+```python
+x = LayerNorm(x + Sublayer(x))
+```
+
+根据上面说的GPU硬件和显存特性，启动三次kernel函数、遍历三次，都是消耗较大的。
+所以优化为：
+1. 算`Skip`层的同时计算`x`和`x^2`的平均值
+2. 再算`LayerNorm`层时直接用`x`和`x^2`的平均值得到`mean`和`std`
+
+    ```python
+    std = sqrt(mean(x^2) - mean(x)^2)
+    ```
+
+看代码的时候没明白，跟yuxian手推了一波这个公式（逃
+
+![std.jpg](../images/bert-runtime/std.jpg)
+
+
+这样将三次遍历fusion成一次，省去了读写global显存的时间
+
+cuda代码实现：
+
+https://github.com/NVIDIA/TensorRT/blob/release/5.1/demo/BERT/plugins/skipLayerNormPlugin.cu
+
+类似的还有`Embeding+LN`的fusion，理论上所有`LN`前面有一次遍历的都可以先算出来`x`和`x^2`的均值，省去两次遍历：
+
+https://github.com/NVIDIA/TensorRT/blob/release/5.1/demo/BERT/plugins/embLayerNormPlugin.cu
+
 
 
 ### QKV 优化
+
+有了上面的基础，这里的两个优化比较容易理解，直接看图和代码
+
+![qkv.png](../images/bert-runtime/qkv.png)
+
+1）``QKV``本来是分别成三个矩阵然后转置，现在变成成一个三倍大的矩阵转置，再slice
+
+https://github.com/NVIDIA/TensorRT/blob/release/5.1/demo/BERT/plugins/qkvToContextPlugin.cu
+
+
+2）``Scale+Softmax``，在scale那一次遍历同时求得`exp(x)`，减少一次遍历
+
+https://github.com/NVIDIA/TensorRT/blob/e47febadb256d94f65efe0f1eac54c7caedd65d4/demo/BERT/plugins/pluginUtil.h#L220
 
 
 ### 异步执行
@@ -201,9 +263,24 @@ TensorRT的blog特别提了一下异步执行。由于CPU和GPU是异构的，�
 
 PyTorch实际上也是异步的，所以这点TensorRT没什么优势
 
+## 如何使用
+
+分析完TensorRT的BERT优化，我们看看能怎么用起来。
+
+这30%左右的inference速度提升还是很香的，可能的用法有：
+
+1. 使用Python API，替换tf/pytorch的BERT实现，前后处理代码不用动
+1. 使用C++ API，封装前后处理C++代码，编译成二进制发布
+1. 直接使用[tensorrt-inference-server](https://github.com/NVIDIA/tensorrt-inference-server)，server只处理tensor，前后处理需要另外实现
 
 
-## Next Steps
+这三种用法都需要将tf/pytorch训练(finetune)好的模型文件，转化为tensorrt的`.engine`文件：
+1. 转换模型参数，每个任务的模型BERT最上层会稍有不同
+1. 确定输入输出、batch_size等参数，生成tensor文件
+1. 用前两部的结果生成`.engine`文件
 
+So, what's next?
 
+根据项目的发展的阶段，考虑采用三种用法，主要先理顺``模型迭代--业务开发--部署``的流程。
 
+> 再次感叹BERT真香，NLP领域幸好有BERT，才能搞这些优化。
