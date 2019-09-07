@@ -26,7 +26,11 @@ tags: [cuda,深度学习]
 
 ## TensorRT
 
-跟[TensorRT](https://github.com/NVIDIA/TensorRT)的编译斗争了一两天，整体还是比较顺畅，照着README：
+**TensorRT**是NVIDIA官方推出的inference引擎，建立在CUDA之上。可以对``TensorFlow/PyTorch``等框架训练出来的模型进行CUDA优化，达到更高的inference性能。同时支持低精度参数、跨平台部署等，总之就是对自己家的GPU使用的最好。
+
+<!--more-->
+
+跟[TensorRT](https://github.com/NVIDIA/TensorRT)的编译斗争了一两天，整体还是比较顺畅，照着``README``：
 
 1. 准备环境，常规c++/py编译环境和cuda环境，我是`Titan XP + cuda-10.0 + cuDNN-7.4`
 1. 下载TensorRT的binary release。TensorRT本身并没有开源，而是提供了编译好的lib。开源的周边代码包括：
@@ -43,7 +47,7 @@ TensorRT的BERT实现代码在[demo/BERT](https://github.com/NVIDIA/TensorRT/tre
 1. TensorFlow模型文件转TensorRT模型文件的脚本
 1. C++和python版API和完整的BERT inference代码。
 
-还是看README，以`SQuAD(QA)`模型为例提供了完整的使用步骤：
+还是看``README``，以`SQuAD(QA)`模型为例提供了完整的使用步骤：
 1. 下载BERT在SQuAD上finetune的TF模型文件，或者你也可以用自己finetune的模型文件
 1. 使用转换脚本将TF模型文件转换成TensorRT模型文件
 1. 使用另一个脚本将模型、参数、输入问题转换为Tensor形式的输入输出
@@ -59,7 +63,7 @@ TensorRT的BERT实现代码在[demo/BERT](https://github.com/NVIDIA/TensorRT/tre
 
 NVIDIA官方数据是在`batchsize=1，seqlen=128`时测试的。在我们的Titan XP上分别使用C++和Python API，GPU时间都在`2.6ms`左右，基本复现了官方数据。
 
-![gpucpu.png](../images/bert-runtime/gpucpu.png)
+![gpucpu.png](/images/bert-runtime/gpucpu.png)
 
 比较有意思的是，明明与pytorch和tensorflow等框架比更能说明bert优化的效果，可能是为了diss cpu好卖gpu卡吧 :P
 
@@ -125,7 +129,7 @@ Answer: 'a high performance deep learning inference platform'
 
 那么我们来看看TensorRT实现的BERT，到底做了哪些优化。
 
-![bert.png](../images/bert-runtime/bert.png)
+![bert.png](/images/bert-runtime/bert.png)
 
 上面的计算图给了一个BERT `Transformer Encoder`的总览。对``Transformer``还不熟悉的话，可以回头看看Harvard写的著名解读[The Annotated Transformer](http://nlp.seas.harvard.edu/2018/04/03/attention.html)。总共有4点计算图优化，3点在`Transformer`中：
 1. `gelu`激活函数的kernel实现
@@ -142,7 +146,7 @@ Answer: 'a high performance deep learning inference platform'
 
 按照`gelu`的公式，如果每步分开计算，每步kernel调用都会进行一次global显存的读写。
 
-![gelu.png](../images/bert-runtime/gelu.png)
+![gelu.png](/images/bert-runtime/gelu.png)
 
 > 由于gpu的硬件特性，`global memory`的访问速度非常慢（相对计算而言），这里可以参考前一篇笔记中的[gpu设计和内存结构](https://github.com/Meteorix/meteorix-blog/blob/master/_posts/cuda101.md#gpu%E8%AE%BE%E8%AE%A1)。
 
@@ -183,7 +187,7 @@ def gelu(x):
 print(gelu.graph)
 ```
 
-![gelujit.png](../images/bert-runtime/gelujit.png)
+![gelujit.png](/images/bert-runtime/gelujit.png)
 
 从计算图上看确实每一步是单独计算，除了`tanh`这种内置的函数，其他都要一层层函数调用。
 
@@ -226,7 +230,7 @@ x = LayerNorm(x + Sublayer(x))
 
 看代码的时候没明白，跟yuxian手推了一波这个公式（逃
 
-![std.jpg](../images/bert-runtime/std.jpg)
+![std.jpg](/images/bert-runtime/std.jpg)
 
 
 这样将三次遍历fusion成一次，省去了读写global显存的时间
@@ -245,7 +249,7 @@ https://github.com/NVIDIA/TensorRT/blob/release/5.1/demo/BERT/plugins/embLayerNo
 
 有了上面的基础，这里的两个优化比较容易理解，直接看图和代码
 
-![qkv.png](../images/bert-runtime/qkv.png)
+![qkv.png](/images/bert-runtime/qkv.png)
 
 1）``QKV``本来是分别成三个矩阵然后转置，现在变成成一个三倍大的矩阵转置，再slice
 
@@ -261,7 +265,7 @@ https://github.com/NVIDIA/TensorRT/blob/e47febadb256d94f65efe0f1eac54c7caedd65d4
 
 TensorRT的blog特别提了一下异步执行。由于CPU和GPU是异构的，在CPU和GPU之间copy tensor、GPU runtime执行计算都是异步完成的。不强制同步可以增加整个流程的吞吐量`througput`。Profile的时候需要特别注意这个异步的时间。这点在TensorRT的python代码中也能看到，实现的非常仔细。
 
-![async.png](../images/bert-runtime/async.png)
+![async.png](/images/bert-runtime/async.png)
 
 PyTorch实际上也是异步的，所以这点TensorRT没什么优势
 
