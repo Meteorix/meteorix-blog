@@ -1,7 +1,7 @@
 ---
 title: BERT Runtime
 
-date: 2019-8-2 11:58:11
+date: 2019-9-7 15:03:33
 
 tags: [cuda,深度学习]
 
@@ -105,6 +105,8 @@ Answer: 'a high performance deep learning inference platform'
 
 使用上面的QA任务样例，输入`padding`到`Sequence Length=328`，`Batch Size`分别使用`1`和`32`。测量100次取平均单句时间，单位是`ms`
 
+### 结论
+
 |bs * seqlen|tensorrt c++|tensorrt py|tensorflow|pytorch|pytorch jit|
 |-|-|-|-|-|-|
 |1 * 328|9.9|9.9|17|16.3|14.8|
@@ -136,7 +138,7 @@ Answer: 'a high performance deep learning inference platform'
 
 下面分别看看4处优化是如何实现的，我也是趁此机会了解计算图优化和cuda kernel函数的编写。
 
-### gelu
+### Gelu
 
 按照`gelu`的公式，如果每步分开计算，每步kernel调用都会进行一次global显存的读写。
 
@@ -279,7 +281,7 @@ PyTorch实际上也是异步的，所以这点TensorRT没什么优势
 1. 确定输入输出、batch_size等参数，生成tensor文件
 1. 用前两部的结果生成`.engine`文件
 
-So, what's next?
+### So, what's next?
 
 根据项目的发展的阶段，考虑采用三种用法，主要先理顺``模型迭代--业务开发--部署``的流程。
 
