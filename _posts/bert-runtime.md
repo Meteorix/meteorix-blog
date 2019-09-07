@@ -14,7 +14,7 @@ tags: [cuda,深度学习]
 本来一直在使用`PyTorch JIT`来解决加速和部署的问题，顺手还写了个[service-streamer](https://github.com/ShannonAI/service-streamer)来做web和模型的中间件。
 正好上个月NVIDIA开源了基于`TensorRT`的[BERT代码](https://github.com/NVIDIA/TensorRT/tree/release/5.1/demo/BERT)，官方[blog](https://devblogs.nvidia.com/nlu-with-tensorrt-bert/)号称单次`inference`只用2.2ms，比cpu快20倍。但是正确的问法是：这东西能比TF/PyTorch快多少呢？
 
-于是从TensorRT开始，认真学习了一波NVIDIA的BERT实现。并做了性能Benchmark对比TensorFlow和PyTorch，结论是gpu时间能快**15%-30%**。主要归因于对BERT的计算图优化，自己实现了4个cuda kernel，另外避免了TensorFlow和PyTorch等框架带来的overhead。
+于是从[TensorRT](https://developer.nvidia.com/tensorrt)开始，认真学习了一波NVIDIA的BERT实现。并做了性能Benchmark对比TensorFlow和PyTorch，结论是gpu时间能快**15%-30%**。主要归因于对BERT的计算图优化，自己实现了4个cuda kernel，另外避免了TensorFlow和PyTorch等框架带来的overhead。
 
 ## Prerequisite
 
