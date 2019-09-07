@@ -57,7 +57,10 @@ TensorRT的BERT实现代码在[demo/BERT](https://github.com/NVIDIA/TensorRT/tre
 
 ### Python API
 
-当然PythonAPI更好用，所以
+NVIDIA也提供了Python API来完成上面的几个步骤，需要多编译一些python binding。不过既然我都编好了C++版本，就只用Python API做inference。后面测试结果可以看出，Python API在模型inference的性能上与C++版本比几乎没有损耗。
+
+Python API的使用依赖[pycuda](https://developer.nvidia.com/pycuda)，这是另一个官方库，用来做Python与CUDA之间的直接交互。这里包括分配显存、内存与显存之间copy tensor等。读取`bert.engine`执行inference则是使用TensorRT发布的whl包。
+
 
 ### 复现NVIDIA提供的性能数据
 
