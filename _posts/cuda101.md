@@ -303,7 +303,7 @@ stream和device是绑定的，可以用event来同步多卡之间的stream
 
 ### 虚拟内存
 
-64bit程序，host和device共用一个虚拟内存，可以参考上面的``显存-内存分配方式```
+64bit程序，host和device共用一个虚拟内存，可以参考上面的``显存-内存分配方式``
 
 ### IPC
 

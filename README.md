@@ -1,6 +1,7 @@
 # meteorix-blog
 
 
+* [Python机器学习性能优化——PyCon2019分享](./_posts/python-ml-optimize.md)
 * [BERT Runtime](./_posts/bert-runtime.md)
 * [cuda101](./_posts/cuda101.md)
 * [6年后，为什么离开网易游戏](./_posts/netease-games.md)
