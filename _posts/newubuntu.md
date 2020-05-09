@@ -60,6 +60,7 @@ export LC_ALL=en_US.UTF-8
 DISABLE_AUTO_TITLE="true"
 ```
 
+增加自动补全，参考：https://github.com/zsh-users/zsh-autosuggestions/blob/master/INSTALL.md
 
 ### vimrc
 
